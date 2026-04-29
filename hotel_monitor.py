@@ -13,9 +13,9 @@ import os
 
 # ============================================================
 
-RAPIDAPI_KEY    = os.environ.get(“RAPIDAPI_KEY”, “”)
-SENDER_EMAIL    = os.environ.get(“SENDER_EMAIL”, “”)
-SENDER_PASSWORD = os.environ.get(“SENDER_PASSWORD”, “”)
+RAPIDAPI_KEY    = os.environ.get("RAPIDAPI_KEY", "")
+SENDER_EMAIL    = os.environ.get("SENDER_EMAIL", "")
+SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
 RECIPIENT_EMAIL = “khushbudave24@gmail.com”
 TIMEZONE        = “America/New_York”
 
