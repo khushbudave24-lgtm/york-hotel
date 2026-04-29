@@ -331,6 +331,5 @@ def main():
     send_email(html, dates)
     print('Done!')
 
-
 if __name__ == '__main__':
     main()
