@@ -13,11 +13,11 @@ import os
 
 # ============================================================
 
-RAPIDAPI_KEY    = os.environ.get("RAPIDAPI_KEY", "")
-SENDER_EMAIL    = os.environ.get("SENDER_EMAIL", "")
-SENDER_PASSWORD = os.environ.get("SENDER_PASSWORD", "")
-RECIPIENT_EMAIL = "khushbudave24@gmail.com"
-TIMEZONE        = "America/New_York"
+RAPIDAPI_KEY    = os.environ.get(“RAPIDAPI_KEY”, “”)
+SENDER_EMAIL    = os.environ.get(“SENDER_EMAIL”, “”)
+SENDER_PASSWORD = os.environ.get(“SENDER_PASSWORD”, “”)
+RECIPIENT_EMAIL = “khushbudave24@gmail.com”
+TIMEZONE        = “America/New_York”
 
 # ============================================================
 
@@ -26,8 +26,8 @@ TIMEZONE        = "America/New_York"
 # ============================================================
 
 HOTELS = [
-{"name": "Ramada York PA",                "booking_id": "102097",  "display": "Ramada by Wyndham York"},
-{"name": "Inn At York PA",                "booking_id": "91785",   "display": "Inn at York"},
+{“name”: “Ramada York PA”,                “booking_id”: “102097”,  “display”: “Ramada by Wyndham York”},
+{“name”: “Inn At York PA”,                “booking_id”: “91785”,   “display”: “Inn at York”},
 {“name”: “Motel 6 York PA”,               “booking_id”: “127494”,  “display”: “Motel 6 York PA”},
 {“name”: “Motel 6 North York PA”,         “booking_id”: “564194”,  “display”: “Motel 6 North York PA”},
 {“name”: “Red Roof York PA”,              “booking_id”: “687”,     “display”: “Red Roof Inn York Downtown”},
@@ -475,5 +475,4 @@ print("Done!")
 ```
 
 if **name** == “**main**”:
-main() 
-  
+main()
