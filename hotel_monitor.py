@@ -14,14 +14,24 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 DEST_ID = '20114931'
 
-HOTELS = [
-    {'name': 'Ramada York PA', 'booking_id': '342291', 'display': 'Ramada by Wyndham York'},
-    {'name': 'Inn At York PA', 'booking_id': '290380', 'display': 'Inn at York'},
-    {'name': 'Motel 6 York PA', 'booking_id': '375049', 'display': 'Motel 6 York PA'},
-    {'name': 'Motel 6 North York PA', 'booking_id': '375049', 'display': 'Motel 6 North York PA'},
-    {'name': 'Red Roof York PA', 'booking_id': '344413', 'display': 'Red Roof Inn York Downtown'},
-    {'name': 'Days Inn York PA', 'booking_id': '311652', 'display': 'Days Inn and Suites York'},
-    {'name': 'Quality Inn York East', 'booking_id': '291498', 'display': 'Quality Inn and Suites York East'},
+HOTEL_IDS = {
+    '342291': 'Ramada by Wyndham York',
+    '290380': 'Inn at York',
+    '375049': 'Motel 6 York PA',
+    '491289': 'Motel 6 North York PA',
+    '344413': 'Red Roof Inn York Downtown',
+    '311652': 'Days Inn and Suites York',
+    '291498': 'Quality Inn and Suites York East',
+}
+
+HOTEL_ORDER = [
+    '342291',
+    '290380',
+    '375049',
+    '491289',
+    '344413',
+    '311652',
+    '291498',
 ]
 
 
@@ -66,50 +76,53 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def fetch_rate(hotel_id, checkin):
+def fetch_rates_for_date(checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    url = 'https://booking-com.p.rapidapi.com/v2/hotels/room-list'
+    url = 'https://booking-com.p.rapidapi.com/v2/properties/list'
     headers = {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
     }
     params = {
-        'hotel_id': hotel_id,
-        'checkin_date': checkin,
-        'checkout_date': checkout,
-        'adults_number': '2',
-        'room_number': '1',
-        'currency': 'USD',
-        'locale': 'en-us',
-        'units': 'metric',
+        'dest_id': DEST_ID,
+        'search_type': 'city',
+        'arrival_date': checkin,
+        'departure_date': checkout,
+        'adults': '2',
+        'room_qty': '1',
+        'price_filter_currencycode': 'USD',
+        'languagecode': 'en-us',
+        'order_by': 'popularity',
     }
+    rates = {}
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=15)
+        response = requests.get(url, headers=headers, params=params, timeout=20)
         data = response.json()
-        lowest = None
-        rooms = data.get('data', [])
-        for room in rooms:
-            for block in room.get('block', []):
+        results = data.get('data', {}).get('result', [])
+        if not results:
+            results = data.get('result', [])
+        for item in results:
+            hotel_id = str(item.get('hotel_id', ''))
+            if hotel_id in HOTEL_IDS:
                 price = None
-                pb = block.get('price_breakdown', {})
-                if pb:
-                    price = pb.get('gross_price')
-                    if price is None:
-                        price = pb.get('all_inclusive_price')
+                cpb = item.get('composite_price_breakdown', {})
+                if cpb:
+                    gross = cpb.get('gross_amount_per_night', {})
+                    if gross:
+                        price = gross.get('value')
+                if price is None:
+                    price = item.get('min_total_price')
                 if price is not None:
                     try:
-                        price = float(price)
-                        if lowest is None or price < lowest:
-                            lowest = price
+                        rates[hotel_id] = '$' + str(int(round(float(price))))
                     except Exception:
-                        pass
-        if lowest is not None:
-            return '$' + str(int(round(lowest)))
-        else:
-            return 'N/A'
+                        rates[hotel_id] = 'N/A'
+                else:
+                    rates[hotel_id] = 'N/A'
+        print('Fetched ' + str(len(rates)) + ' rates for ' + checkin)
     except Exception as e:
-        print('Error fetching hotel ' + hotel_id + ' for ' + checkin + ': ' + str(e))
-        return 'N/A'
+        print('Error fetching rates for ' + checkin + ': ' + str(e))
+    return rates
 
 
 def rate_color(rate_str):
@@ -131,10 +144,10 @@ def fmt_date(d):
     return dt.strftime('%A, %B ') + str(dt.day) + ', ' + str(dt.year)
 
 
-def get_lowest(hotel_rates, date_str):
+def get_lowest(rates_for_date):
     vals = []
-    for hotel in HOTELS:
-        r = hotel_rates.get(hotel['name'], {}).get(date_str, 'N/A')
+    for hid in HOTEL_ORDER:
+        r = rates_for_date.get(hid, 'N/A')
         if r != 'N/A':
             try:
                 vals.append(int(r.replace('$', '')))
@@ -145,10 +158,10 @@ def get_lowest(hotel_rates, date_str):
     return 'N/A'
 
 
-def get_highest(hotel_rates, date_str):
+def get_highest(rates_for_date):
     vals = []
-    for hotel in HOTELS:
-        r = hotel_rates.get(hotel['name'], {}).get(date_str, 'N/A')
+    for hid in HOTEL_ORDER:
+        r = rates_for_date.get(hid, 'N/A')
         if r != 'N/A':
             try:
                 vals.append(int(r.replace('$', '')))
@@ -159,39 +172,37 @@ def get_highest(hotel_rates, date_str):
     return 'N/A'
 
 
-def build_email(hotel_rates, dates, events):
+def build_rows(rates_for_date, numbered):
+    rows = ''
+    for i, hid in enumerate(HOTEL_ORDER):
+        rate = rates_for_date.get(hid, 'N/A')
+        color = rate_color(rate)
+        name = HOTEL_IDS[hid]
+        rows += '<tr>'
+        if numbered:
+            rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
+        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + name + '</td>'
+        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:18px;font-weight:700;color:' + color + ';>' + rate + '</td>'
+        rows += '</tr>'
+    return rows
+
+
+def build_email(all_rates, dates, events):
     today_str, friday_str, saturday_str = dates
     et = pytz.timezone(TIMEZONE)
     now = datetime.now(et)
     send_time = now.strftime('%B ') + str(now.day) + ', ' + str(now.year) + ' at 7:00 AM ET'
 
-    today_rows = ''
-    for i, hotel in enumerate(HOTELS):
-        rate = hotel_rates.get(hotel['name'], {}).get(today_str, 'N/A')
-        color = rate_color(rate)
-        today_rows += '<tr>'
-        today_rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
-        today_rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['display'] + '</td>'
-        today_rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:20px;font-weight:700;color:' + color + ';>' + rate + '</td>'
-        today_rows += '</tr>'
+    today_rates = all_rates.get(today_str, {})
+    friday_rates = all_rates.get(friday_str, {})
+    saturday_rates = all_rates.get(saturday_str, {})
 
-    friday_rows = ''
-    for hotel in HOTELS:
-        rate = hotel_rates.get(hotel['name'], {}).get(friday_str, 'N/A')
-        color = rate_color(rate)
-        friday_rows += '<tr>'
-        friday_rows += '<td style=padding:9px 8px;border-bottom:1px solid #f5f2ec;font-size:12px;color:#444;>' + hotel['display'] + '</td>'
-        friday_rows += '<td style=padding:9px 8px;border-bottom:1px solid #f5f2ec;text-align:right;font-size:14px;font-weight:700;color:' + color + ';>' + rate + '</td>'
-        friday_rows += '</tr>'
+    today_rows = build_rows(today_rates, True)
+    friday_rows = build_rows(friday_rates, False)
+    saturday_rows = build_rows(saturday_rates, False)
 
-    saturday_rows = ''
-    for hotel in HOTELS:
-        rate = hotel_rates.get(hotel['name'], {}).get(saturday_str, 'N/A')
-        color = rate_color(rate)
-        saturday_rows += '<tr>'
-        saturday_rows += '<td style=padding:9px 8px;border-bottom:1px solid #f5f2ec;font-size:12px;color:#444;>' + hotel['display'] + '</td>'
-        saturday_rows += '<td style=padding:9px 8px;border-bottom:1px solid #f5f2ec;text-align:right;font-size:14px;font-weight:700;color:' + color + ';>' + rate + '</td>'
-        saturday_rows += '</tr>'
+    lowest_tonight = get_lowest(today_rates)
+    highest_tonight = get_highest(today_rates)
 
     event_rows = ''
     if events:
@@ -215,9 +226,6 @@ def build_email(hotel_rates, dates, events):
     else:
         event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events this month.</td></tr>'
 
-    lowest_tonight = get_lowest(hotel_rates, today_str)
-    highest_tonight = get_highest(hotel_rates, today_str)
-
     html = '<!DOCTYPE html><html><head><meta charset=UTF-8></head>'
     html += '<body style=margin:0;padding:20px;background:#edeae3;font-family:Arial,sans-serif;>'
     html += '<div style=max-width:640px;margin:0 auto;background:#ffffff;border-radius:3px;overflow:hidden;box-shadow:0 4px 30px rgba(0,0,0,0.12);>'
@@ -225,6 +233,9 @@ def build_email(hotel_rates, dates, events):
     html += '<div style=font-size:10px;letter-spacing:3px;text-transform:uppercase;color:#7eab6e;margin-bottom:8px;font-weight:600;>York, Pennsylvania - Daily Rate Report</div>'
     html += '<div style=font-size:26px;font-weight:700;color:#ffffff;margin-bottom:4px;>Hotel Rate Alert</div>'
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Today + Weekend</span>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live from Booking.com</span>'
     html += '</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);>'
@@ -243,10 +254,10 @@ def build_email(hotel_rates, dates, events):
     html += '<table width=100% cellpadding=0 cellspacing=0 style=padding:0 36px;><tbody>' + today_rows + '</tbody></table>'
     html += '<div style=padding:24px 36px 0;margin-top:10px;>'
     html += '<div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:14px;>Following Weekend Rates</div>'
-    html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:16px;>'
+    html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:16px;border:1px solid #ebe7e0;border-radius:6px;overflow:hidden;>'
     html += '<thead><tr style=background:#f7f4ef;><th colspan=2 style=padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#555;>Friday - ' + fmt_date(friday_str) + '</th></tr></thead>'
     html += '<tbody>' + friday_rows + '</tbody></table>'
-    html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;>'
+    html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;border:1px solid #ebe7e0;border-radius:6px;overflow:hidden;>'
     html += '<thead><tr style=background:#f7f4ef;><th colspan=2 style=padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#555;>Saturday - ' + fmt_date(saturday_str) + '</th></tr></thead>'
     html += '<tbody>' + saturday_rows + '</tbody></table>'
     html += '</div>'
@@ -294,20 +305,21 @@ def main():
     dates = get_dates()
     today_str, friday_str, saturday_str = dates
     print('Fetching rates for: ' + today_str + ', ' + friday_str + ', ' + saturday_str)
-    hotel_rates = {}
-    for hotel in HOTELS:
-        print('Fetching: ' + hotel['display'])
-        hotel_rates[hotel['name']] = {}
-        for date in [today_str, friday_str, saturday_str]:
-            rate = fetch_rate(hotel['booking_id'], date)
-            hotel_rates[hotel['name']][date] = rate
-            print('  ' + date + ': ' + rate)
-        time.sleep(1)
+
+    all_rates = {}
+    for date in [today_str, friday_str, saturday_str]:
+        print('Fetching date: ' + date)
+        rates = fetch_rates_for_date(date)
+        all_rates[date] = rates
+        for hid in HOTEL_ORDER:
+            print('  ' + HOTEL_IDS[hid] + ': ' + rates.get(hid, 'N/A'))
+        time.sleep(2)
+
     print('Checking York PA events...')
     events = get_events()
     print('Found ' + str(len(events)) + ' events this month')
     print('Building and sending email...')
-    html = build_email(hotel_rates, dates, events)
+    html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
 
