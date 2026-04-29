@@ -1,11 +1,12 @@
 import requests
 import smtplib
+import os
+import json
 import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 import pytz
-import os
 
 RAPIDAPI_KEY = os.environ.get('RAPIDAPI_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', '')
@@ -24,15 +25,7 @@ HOTEL_IDS = {
     '291498': 'Quality Inn and Suites York East',
 }
 
-HOTEL_ORDER = [
-    '342291',
-    '290380',
-    '375049',
-    '491289',
-    '344413',
-    '311652',
-    '291498',
-]
+HOTEL_ORDER = ['342291', '290380', '375049', '491289', '344413', '311652', '291498']
 
 
 def get_events():
@@ -78,50 +71,75 @@ def get_dates():
 
 def fetch_rates_for_date(checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    url = 'https://booking-com.p.rapidapi.com/v2/properties/list'
+    rates = {}
+
+    url = 'https://booking-com.p.rapidapi.com/v1/properties/list'
     headers = {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
     }
     params = {
         'dest_id': DEST_ID,
-        'search_type': 'city',
-        'arrival_date': checkin,
-        'departure_date': checkout,
-        'adults': '2',
-        'room_qty': '1',
-        'price_filter_currencycode': 'USD',
-        'languagecode': 'en-us',
+        'dest_type': 'city',
+        'checkin_date': checkin,
+        'checkout_date': checkout,
+        'adults_number': '2',
+        'room_number': '1',
+        'filter_by_currency': 'USD',
+        'locale': 'en-us',
         'order_by': 'popularity',
+        'units': 'metric',
+        'include_adjacency': 'true',
     }
-    rates = {}
+
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
+        print('v1/properties/list status: ' + str(response.status_code))
         data = response.json()
-        results = data.get('data', {}).get('result', [])
-        if not results:
-            results = data.get('result', [])
-        for item in results:
+        raw = json.dumps(data)
+        print('Response preview: ' + raw[:500])
+
+        result_list = []
+        if isinstance(data, dict):
+            result_list = data.get('result', [])
+            if not result_list:
+                result_list = data.get('data', [])
+        elif isinstance(data, list):
+            result_list = data
+
+        print('Found ' + str(len(result_list)) + ' properties')
+
+        for item in result_list:
+            if not isinstance(item, dict):
+                continue
             hotel_id = str(item.get('hotel_id', ''))
+            hotel_name = item.get('hotel_name', '')
+            price = None
+
+            cpb = item.get('composite_price_breakdown', {})
+            if cpb:
+                gross = cpb.get('gross_amount_per_night', {})
+                if gross:
+                    price = gross.get('value')
+            if price is None:
+                price = item.get('min_total_price')
+            if price is None:
+                price = item.get('price_breakdown', {}).get('gross_price')
+
             if hotel_id in HOTEL_IDS:
-                price = None
-                cpb = item.get('composite_price_breakdown', {})
-                if cpb:
-                    gross = cpb.get('gross_amount_per_night', {})
-                    if gross:
-                        price = gross.get('value')
-                if price is None:
-                    price = item.get('min_total_price')
                 if price is not None:
-                    try:
-                        rates[hotel_id] = '$' + str(int(round(float(price))))
-                    except Exception:
-                        rates[hotel_id] = 'N/A'
+                    rates[hotel_id] = '$' + str(int(round(float(price))))
+                    print('MATCHED: ' + hotel_name + ' = ' + rates[hotel_id])
                 else:
                     rates[hotel_id] = 'N/A'
-        print('Fetched ' + str(len(rates)) + ' rates for ' + checkin)
+                    print('MATCHED but no price: ' + hotel_name)
+            else:
+                if price is not None:
+                    print('Unmatched hotel: ' + hotel_name + ' id=' + hotel_id + ' price=' + str(price))
+
     except Exception as e:
-        print('Error fetching rates for ' + checkin + ': ' + str(e))
+        print('Error: ' + str(e))
+
     return rates
 
 
@@ -153,9 +171,7 @@ def get_lowest(rates_for_date):
                 vals.append(int(r.replace('$', '')))
             except Exception:
                 pass
-    if vals:
-        return '$' + str(min(vals))
-    return 'N/A'
+    return '$' + str(min(vals)) if vals else 'N/A'
 
 
 def get_highest(rates_for_date):
@@ -167,9 +183,7 @@ def get_highest(rates_for_date):
                 vals.append(int(r.replace('$', '')))
             except Exception:
                 pass
-    if vals:
-        return '$' + str(max(vals))
-    return 'N/A'
+    return '$' + str(max(vals)) if vals else 'N/A'
 
 
 def build_rows(rates_for_date, numbered):
@@ -208,12 +222,7 @@ def build_email(all_rates, dates, events):
     if events:
         for ev in events:
             imp = ev.get('impact', 'LOW')
-            if imp == 'HIGH':
-                imp_color = '#c0392b'
-            elif imp == 'MODERATE':
-                imp_color = '#e07800'
-            else:
-                imp_color = '#2a7a2a'
+            imp_color = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
             event_rows += '<tr>'
             event_rows += '<td style=padding:11px 8px;border-bottom:1px solid #f0ece3;>'
             event_rows += '<span style=font-size:13px;font-weight:600;color:#1b2e1b;>' + ev['name'] + '</span><br>'
@@ -221,8 +230,7 @@ def build_email(all_rates, dates, events):
             event_rows += '</td>'
             event_rows += '<td style=padding:11px 8px;border-bottom:1px solid #f0ece3;text-align:right;>'
             event_rows += '<span style=background:' + imp_color + ';color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;>' + imp + '</span>'
-            event_rows += '</td>'
-            event_rows += '</tr>'
+            event_rows += '</td></tr>'
     else:
         event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events this month.</td></tr>'
 
