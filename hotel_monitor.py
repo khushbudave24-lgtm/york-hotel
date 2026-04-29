@@ -12,15 +12,16 @@ SENDER_EMAIL = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
+DEST_ID = '20114931'
 
 HOTELS = [
-    {'name': 'Ramada York PA', 'booking_id': '102097', 'display': 'Ramada by Wyndham York'},
-    {'name': 'Inn At York PA', 'booking_id': '91785', 'display': 'Inn at York'},
-    {'name': 'Motel 6 York PA', 'booking_id': '127494', 'display': 'Motel 6 York PA'},
-    {'name': 'Motel 6 North York PA', 'booking_id': '564194', 'display': 'Motel 6 North York PA'},
-    {'name': 'Red Roof York PA', 'booking_id': '687', 'display': 'Red Roof Inn York Downtown'},
-    {'name': 'Days Inn York PA', 'booking_id': '274141', 'display': 'Days Inn and Suites York'},
-    {'name': 'Quality Inn York East', 'booking_id': '102098', 'display': 'Quality Inn and Suites York East'},
+    {'name': 'Ramada York PA', 'booking_id': '342291', 'display': 'Ramada by Wyndham York'},
+    {'name': 'Inn At York PA', 'booking_id': '290380', 'display': 'Inn at York'},
+    {'name': 'Motel 6 York PA', 'booking_id': '375049', 'display': 'Motel 6 York PA'},
+    {'name': 'Motel 6 North York PA', 'booking_id': '375049', 'display': 'Motel 6 North York PA'},
+    {'name': 'Red Roof York PA', 'booking_id': '344413', 'display': 'Red Roof Inn York Downtown'},
+    {'name': 'Days Inn York PA', 'booking_id': '311652', 'display': 'Days Inn and Suites York'},
+    {'name': 'Quality Inn York East', 'booking_id': '291498', 'display': 'Quality Inn and Suites York East'},
 ]
 
 
@@ -67,7 +68,7 @@ def get_dates():
 
 def fetch_rate(hotel_id, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    url = 'https://booking-com.p.rapidapi.com/v1/hotels/room-list'
+    url = 'https://booking-com.p.rapidapi.com/v2/hotels/room-list'
     headers = {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
@@ -76,23 +77,32 @@ def fetch_rate(hotel_id, checkin):
         'hotel_id': hotel_id,
         'checkin_date': checkin,
         'checkout_date': checkout,
-        'adults_number': '1',
+        'adults_number': '2',
         'room_number': '1',
-        'units': 'metric',
         'currency': 'USD',
         'locale': 'en-us',
+        'units': 'metric',
     }
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
         data = response.json()
         lowest = None
-        rooms = data.get('rooms', {})
-        for room_id, room_data in rooms.items():
-            for block in room_data.get('block', []):
-                price = block.get('price_breakdown', {}).get('gross_price')
+        rooms = data.get('data', [])
+        for room in rooms:
+            for block in room.get('block', []):
+                price = None
+                pb = block.get('price_breakdown', {})
+                if pb:
+                    price = pb.get('gross_price')
+                    if price is None:
+                        price = pb.get('all_inclusive_price')
                 if price is not None:
-                    if lowest is None or price < lowest:
-                        lowest = price
+                    try:
+                        price = float(price)
+                        if lowest is None or price < lowest:
+                            lowest = price
+                    except Exception:
+                        pass
         if lowest is not None:
             return '$' + str(int(round(lowest)))
         else:
@@ -243,6 +253,12 @@ def build_email(hotel_rates, dates, events):
     html += '<div style=padding:0 36px;>'
     html += '<div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Rate Impact Watch</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table>'
+    html += '</div>'
+    html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;>'
+    html += '<span style=font-size:11px;color:#888;>Rate Legend: '
+    html += '<span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | '
+    html += '<span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | '
+    html += '<span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span>'
     html += '</div>'
     html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;>'
     html += '<p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>'
