@@ -78,7 +78,7 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Host': API_HOST
     }
 
-    url = 'https://' + API_HOST + '/v2/properties/list'
+    url = 'https://' + API_HOST + '/properties/list'
     params = {
         'dest_id': DEST_ID,
         'dest_type': 'city',
