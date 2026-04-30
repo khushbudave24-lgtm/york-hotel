@@ -27,8 +27,6 @@ HOTEL_IDS = {
 
 HOTEL_ORDER = ['342291', '290380', '375049', '491289', '344413', '311652', '291498']
 
-YORK_PA_BBOX = '39.85,40.10,-76.85,-76.60'
-
 
 def get_events():
     et = pytz.timezone(TIMEZONE)
@@ -89,27 +87,48 @@ def fetch_rates_for_date(checkin):
         'order_by': 'popularity',
         'guest_qty': '2',
         'room_qty': '1',
-        'checkin_date': checkin,
-        'checkout_date': checkout,
-        'bbox': YORK_PA_BBOX,
+        'arrival_date': checkin,
+        'departure_date': checkout,
+        'bbox': '14.291283,14.948423,120.755688,121.136864',
         'categories_filter': 'class::1,class::2,class::3',
     }
+
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
         print('Status: ' + str(response.status_code))
         data = response.json()
         raw = json.dumps(data)
-        print('Preview: ' + raw[:400])
+        print('Preview: ' + raw[:300])
 
-        result_list = []
-        if isinstance(data, dict):
-            result_list = data.get('result', [])
-        elif isinstance(data, list):
-            result_list = data
+        result_list = data.get('result', []) if isinstance(data, dict) else []
+        print('Found ' + str(len(result_list)) + ' properties in test bbox')
 
-        print('Found ' + str(len(result_list)) + ' properties')
+        url2 = 'https://' + API_HOST + '/properties/list-by-map'
+        params2 = {
+            'search_id': 'none',
+            'children_age': '5,0',
+            'price_filter_currencycode': 'USD',
+            'languagecode': 'en-us',
+            'travel_purpose': 'leisure',
+            'children_qty': '0',
+            'order_by': 'popularity',
+            'guest_qty': '2',
+            'room_qty': '1',
+            'arrival_date': checkin,
+            'departure_date': checkout,
+            'bbox': '39.85,40.10,-76.85,-76.60',
+            'categories_filter': 'class::1,class::2,class::3',
+        }
+        response2 = requests.get(url2, headers=headers, params=params2, timeout=20)
+        print('York bbox status: ' + str(response2.status_code))
+        data2 = response2.json()
+        raw2 = json.dumps(data2)
+        print('York bbox preview: ' + raw2[:300])
+        result_list2 = data2.get('result', []) if isinstance(data2, dict) else []
+        print('Found ' + str(len(result_list2)) + ' York properties')
 
-        for item in result_list:
+        all_results = result_list + result_list2
+        for item in all_results:
             if not isinstance(item, dict):
                 continue
             hotel_id = str(item.get('hotel_id', ''))
@@ -122,7 +141,6 @@ def fetch_rates_for_date(checkin):
                     price = gross.get('value')
             if price is None:
                 price = item.get('min_total_price')
-
             if hotel_id in HOTEL_IDS:
                 if price is not None:
                     rates[hotel_id] = '$' + str(int(round(float(price))))
@@ -202,33 +220,27 @@ def build_email(all_rates, dates, events):
     et = pytz.timezone(TIMEZONE)
     now = datetime.now(et)
     send_time = now.strftime('%B ') + str(now.day) + ', ' + str(now.year) + ' at 7:00 AM ET'
-
     today_rates = all_rates.get(today_str, {})
     friday_rates = all_rates.get(friday_str, {})
     saturday_rates = all_rates.get(saturday_str, {})
-
     today_rows = build_rows(today_rates, True)
     friday_rows = build_rows(friday_rates, False)
     saturday_rows = build_rows(saturday_rates, False)
     lowest_tonight = get_lowest(today_rates)
     highest_tonight = get_highest(today_rates)
-
     event_rows = ''
     if events:
         for ev in events:
             imp = ev.get('impact', 'LOW')
             imp_color = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
-            event_rows += '<tr>'
-            event_rows += '<td style=padding:11px 8px;border-bottom:1px solid #f0ece3;>'
+            event_rows += '<tr><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;>'
             event_rows += '<span style=font-size:13px;font-weight:600;color:#1b2e1b;>' + ev['name'] + '</span><br>'
             event_rows += '<span style=font-size:11px;color:#999;>' + ev['date'] + ' - ' + ev['venue'] + '</span>'
-            event_rows += '</td>'
-            event_rows += '<td style=padding:11px 8px;border-bottom:1px solid #f0ece3;text-align:right;>'
+            event_rows += '</td><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;text-align:right;>'
             event_rows += '<span style=background:' + imp_color + ';color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;>' + imp + '</span>'
             event_rows += '</td></tr>'
     else:
         event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events this month.</td></tr>'
-
     html = '<!DOCTYPE html><html><head><meta charset=UTF-8></head>'
     html += '<body style=margin:0;padding:20px;background:#edeae3;font-family:Arial,sans-serif;>'
     html += '<div style=max-width:640px;margin:0 auto;background:#ffffff;border-radius:3px;overflow:hidden;box-shadow:0 4px 30px rgba(0,0,0,0.12);>'
@@ -241,19 +253,11 @@ def build_email(all_rates, dates, events):
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live from Booking.com</span>'
     html += '</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
-    html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);>'
-    html += '<div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div>'
-    html += '<div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
-    html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);>'
-    html += '<div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div>'
-    html += '<div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
-    html += '<td width=33% style=padding:14px 10px;text-align:center;>'
-    html += '<div style=font-size:22px;font-weight:700;color:#ffffff;>7 Hotels</div>'
-    html += '<div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Tracked Tonight</div></td>'
+    html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
+    html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
+    html += '<td width=33% style=padding:14px 10px;text-align:center;><div style=font-size:22px;font-weight:700;color:#ffffff;>7 Hotels</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Tracked Tonight</div></td>'
     html += '</tr></table>'
-    html += '<div style=padding:24px 36px 0;>'
-    html += '<div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>Todays Rates - ' + fmt_date(today_str) + '</div>'
-    html += '</div>'
+    html += '<div style=padding:24px 36px 0;><div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>Todays Rates - ' + fmt_date(today_str) + '</div></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=padding:0 36px;><tbody>' + today_rows + '</tbody></table>'
     html += '<div style=padding:24px 36px 0;margin-top:10px;>'
     html += '<div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:14px;>Following Weekend Rates</div>'
@@ -262,24 +266,14 @@ def build_email(all_rates, dates, events):
     html += '<tbody>' + friday_rows + '</tbody></table>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;border:1px solid #ebe7e0;border-radius:6px;overflow:hidden;>'
     html += '<thead><tr style=background:#f7f4ef;><th colspan=2 style=padding:10px 12px;text-align:left;font-size:11px;font-weight:700;color:#555;>Saturday - ' + fmt_date(saturday_str) + '</th></tr></thead>'
-    html += '<tbody>' + saturday_rows + '</tbody></table>'
-    html += '</div>'
+    html += '<tbody>' + saturday_rows + '</tbody></table></div>'
     html += '<div style=padding:0 36px;>'
     html += '<div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Rate Impact Watch</div>'
-    html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table>'
-    html += '</div>'
+    html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table></div>'
     html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;>'
-    html += '<span style=font-size:11px;color:#888;>Rate Legend: '
-    html += '<span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | '
-    html += '<span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | '
-    html += '<span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span>'
-    html += '</div>'
+    html += '<span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
     html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;>'
-    html += '<p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>'
-    html += 'York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>'
-    html += 'Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn | Quality Inn East<br>'
-    html += 'Delivered to: khushbudave24@gmail.com'
-    html += '</p></div>'
+    html += '<p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn | Quality Inn East<br>Delivered to: khushbudave24@gmail.com</p></div>'
     html += '</div></body></html>'
     return html
 
@@ -308,7 +302,6 @@ def main():
     dates = get_dates()
     today_str, friday_str, saturday_str = dates
     print('Fetching rates for: ' + today_str + ', ' + friday_str + ', ' + saturday_str)
-
     all_rates = {}
     for date in [today_str, friday_str, saturday_str]:
         print('Fetching date: ' + date)
@@ -317,7 +310,6 @@ def main():
         for hid in HOTEL_ORDER:
             print('  ' + HOTEL_IDS[hid] + ': ' + rates.get(hid, 'N/A'))
         time.sleep(2)
-
     print('Checking York PA events...')
     events = get_events()
     print('Found ' + str(len(events)) + ' events this month')
