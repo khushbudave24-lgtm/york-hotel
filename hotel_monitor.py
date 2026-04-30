@@ -13,7 +13,7 @@ SENDER_EMAIL = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
-DEST_ID = '-756559'
+DEST_ID = '20114931'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
 HOTEL_IDS = {
@@ -80,8 +80,8 @@ def fetch_rates_for_date(checkin):
 
     url = 'https://' + API_HOST + '/properties/list'
     params = {
-        'dest_ids': DEST_ID,
-        'search_type': 'city',
+        'ufi': DEST_ID,
+        
         'arrival_date': checkin,
         'departure_date': checkout,
         'guest_qty': '2',
