@@ -15,17 +15,28 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
-HOTEL_IDS = {
-    '342291': 'Ramada by Wyndham York',
-    '290380': 'Inn at York',
-    '375049': 'Motel 6 York PA',
-    '491289': 'Motel 6 North York PA',
-    '344413': 'Red Roof Inn York Downtown',
-    '311652': 'Days Inn and Suites York',
-    '291498': 'Quality Inn and Suites York East',
+YORK_HOTELS = {
+    'ramada': {'keywords': ['ramada', 'wyndham york'], 'display': 'Ramada by Wyndham York'},
+    'inn_york': {'keywords': ['inn at york'], 'display': 'Inn at York'},
+    'motel6': {'keywords': ['motel 6-york', 'motel 6 york'], 'display': 'Motel 6 York PA'},
+    'motel6north': {'keywords': ['motel 6-north york', 'motel 6 north york'], 'display': 'Motel 6 North York PA'},
+    'redroof': {'keywords': ['red roof', 'york'], 'display': 'Red Roof Inn York'},
+    'daysinn': {'keywords': ['days inn', 'york'], 'display': 'Days Inn York'},
+    'qualityinn': {'keywords': ['quality inn', 'york'], 'display': 'Quality Inn York East'},
 }
 
-HOTEL_ORDER = ['342291', '290380', '375049', '491289', '344413', '311652', '291498']
+HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
+
+YORK_BBOX = '39.8,-76.9,40.1,-76.5'
+
+
+def match_hotel(hotel_name):
+    name_lower = hotel_name.lower()
+    for key, info in YORK_HOTELS.items():
+        keywords = info['keywords']
+        if all(kw in name_lower for kw in keywords):
+            return key
+    return None
 
 
 def get_events():
@@ -89,50 +100,23 @@ def fetch_rates_for_date(checkin):
         'room_qty': '1',
         'arrival_date': checkin,
         'departure_date': checkout,
-        'bbox': '14.291283,14.948423,120.755688,121.136864',
+        'bbox': YORK_BBOX,
         'categories_filter': 'class::1,class::2,class::3',
     }
-
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
         print('Status: ' + str(response.status_code))
         data = response.json()
-        raw = json.dumps(data)
-        print('Preview: ' + raw[:300])
-
         result_list = data.get('result', []) if isinstance(data, dict) else []
-        print('Found ' + str(len(result_list)) + ' properties in test bbox')
+        print('Found ' + str(len(result_list)) + ' York properties')
 
-        url2 = 'https://' + API_HOST + '/properties/list-by-map'
-        params2 = {
-            'search_id': 'none',
-            'children_age': '5,0',
-            'price_filter_currencycode': 'USD',
-            'languagecode': 'en-us',
-            'travel_purpose': 'leisure',
-            'children_qty': '0',
-            'order_by': 'popularity',
-            'guest_qty': '2',
-            'room_qty': '1',
-            'arrival_date': checkin,
-            'departure_date': checkout,
-            'bbox': '39.85,40.10,-76.85,-76.60',
-            'categories_filter': 'class::1,class::2,class::3',
-        }
-        response2 = requests.get(url2, headers=headers, params=params2, timeout=20)
-        print('York bbox status: ' + str(response2.status_code))
-        data2 = response2.json()
-        raw2 = json.dumps(data2)
-        print('York bbox preview: ' + raw2[:300])
-        result_list2 = data2.get('result', []) if isinstance(data2, dict) else []
-        print('Found ' + str(len(result_list2)) + ' York properties')
-
-        all_results = result_list + result_list2
-        for item in all_results:
+        for item in result_list:
             if not isinstance(item, dict):
                 continue
-            hotel_id = str(item.get('hotel_id', ''))
             hotel_name = item.get('hotel_name', '')
+            city = item.get('city_name_en', item.get('city', ''))
+            if 'york' not in city.lower() and 'york' not in hotel_name.lower():
+                continue
             price = None
             cpb = item.get('composite_price_breakdown', {})
             if cpb:
@@ -141,15 +125,16 @@ def fetch_rates_for_date(checkin):
                     price = gross.get('value')
             if price is None:
                 price = item.get('min_total_price')
-            if hotel_id in HOTEL_IDS:
+            matched_key = match_hotel(hotel_name)
+            if matched_key:
                 if price is not None:
-                    rates[hotel_id] = '$' + str(int(round(float(price))))
-                    print('MATCHED: ' + hotel_name + ' = ' + rates[hotel_id])
+                    rates[matched_key] = '$' + str(int(round(float(price))))
+                    print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
                 else:
-                    rates[hotel_id] = 'N/A'
+                    rates[matched_key] = 'N/A'
             else:
-                if price is not None and hotel_name:
-                    print('Unmatched: ' + hotel_name + ' id=' + hotel_id + ' $' + str(int(round(float(price)))))
+                if price is not None:
+                    print('York hotel unmatched: ' + hotel_name + ' $' + str(int(round(float(price)))))
 
     except Exception as e:
         print('Error: ' + str(e))
@@ -178,8 +163,8 @@ def fmt_date(d):
 
 def get_lowest(rates_for_date):
     vals = []
-    for hid in HOTEL_ORDER:
-        r = rates_for_date.get(hid, 'N/A')
+    for key in HOTEL_DISPLAY_ORDER:
+        r = rates_for_date.get(key, 'N/A')
         if r != 'N/A':
             try:
                 vals.append(int(r.replace('$', '')))
@@ -190,8 +175,8 @@ def get_lowest(rates_for_date):
 
 def get_highest(rates_for_date):
     vals = []
-    for hid in HOTEL_ORDER:
-        r = rates_for_date.get(hid, 'N/A')
+    for key in HOTEL_DISPLAY_ORDER:
+        r = rates_for_date.get(key, 'N/A')
         if r != 'N/A':
             try:
                 vals.append(int(r.replace('$', '')))
@@ -202,10 +187,10 @@ def get_highest(rates_for_date):
 
 def build_rows(rates_for_date, numbered):
     rows = ''
-    for i, hid in enumerate(HOTEL_ORDER):
-        rate = rates_for_date.get(hid, 'N/A')
+    for i, key in enumerate(HOTEL_DISPLAY_ORDER):
+        rate = rates_for_date.get(key, 'N/A')
         color = rate_color(rate)
-        name = HOTEL_IDS[hid]
+        name = YORK_HOTELS[key]['display']
         rows += '<tr>'
         if numbered:
             rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
@@ -270,10 +255,8 @@ def build_email(all_rates, dates, events):
     html += '<div style=padding:0 36px;>'
     html += '<div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Rate Impact Watch</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table></div>'
-    html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;>'
-    html += '<span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
-    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;>'
-    html += '<p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn | Quality Inn East<br>Delivered to: khushbudave24@gmail.com</p></div>'
+    html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;><span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
+    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn | Quality Inn East<br>Delivered to: khushbudave24@gmail.com</p></div>'
     html += '</div></body></html>'
     return html
 
@@ -307,8 +290,8 @@ def main():
         print('Fetching date: ' + date)
         rates = fetch_rates_for_date(date)
         all_rates[date] = rates
-        for hid in HOTEL_ORDER:
-            print('  ' + HOTEL_IDS[hid] + ': ' + rates.get(hid, 'N/A'))
+        for key in HOTEL_DISPLAY_ORDER:
+            print('  ' + YORK_HOTELS[key]['display'] + ': ' + rates.get(key, 'N/A'))
         time.sleep(2)
     print('Checking York PA events...')
     events = get_events()
