@@ -14,6 +14,7 @@ SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 DEST_ID = '20114931'
+API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
 HOTEL_IDS = {
     '342291': 'Ramada by Wyndham York',
@@ -72,12 +73,12 @@ def get_dates():
 def fetch_rates_for_date(checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
     rates = {}
-
-    url = 'https://booking-com.p.rapidapi.com/v1/properties/list'
     headers = {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
-        'X-RapidAPI-Host': 'booking-com.p.rapidapi.com'
+        'X-RapidAPI-Host': API_HOST
     }
+
+    url = 'https://' + API_HOST + '/properties/list'
     params = {
         'dest_id': DEST_ID,
         'dest_type': 'city',
@@ -94,16 +95,16 @@ def fetch_rates_for_date(checkin):
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
-        print('v1/properties/list status: ' + str(response.status_code))
+        print('Status: ' + str(response.status_code))
         data = response.json()
         raw = json.dumps(data)
-        print('Response preview: ' + raw[:500])
+        print('Preview: ' + raw[:300])
 
         result_list = []
         if isinstance(data, dict):
             result_list = data.get('result', [])
             if not result_list:
-                result_list = data.get('data', [])
+                result_list = data.get('data', {}).get('result', [])
         elif isinstance(data, list):
             result_list = data
 
@@ -123,8 +124,6 @@ def fetch_rates_for_date(checkin):
                     price = gross.get('value')
             if price is None:
                 price = item.get('min_total_price')
-            if price is None:
-                price = item.get('price_breakdown', {}).get('gross_price')
 
             if hotel_id in HOTEL_IDS:
                 if price is not None:
@@ -132,10 +131,9 @@ def fetch_rates_for_date(checkin):
                     print('MATCHED: ' + hotel_name + ' = ' + rates[hotel_id])
                 else:
                     rates[hotel_id] = 'N/A'
-                    print('MATCHED but no price: ' + hotel_name)
             else:
                 if price is not None:
-                    print('Unmatched hotel: ' + hotel_name + ' id=' + hotel_id + ' price=' + str(price))
+                    print('Unmatched: ' + hotel_name + ' id=' + hotel_id + ' $' + str(int(round(float(price)))))
 
     except Exception as e:
         print('Error: ' + str(e))
@@ -330,6 +328,7 @@ def main():
     html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
+
 
 if __name__ == '__main__':
     main()
