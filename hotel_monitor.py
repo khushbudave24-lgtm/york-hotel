@@ -13,7 +13,6 @@ SENDER_EMAIL = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
-DEST_ID = '20114931'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
 HOTEL_IDS = {
@@ -27,6 +26,8 @@ HOTEL_IDS = {
 }
 
 HOTEL_ORDER = ['342291', '290380', '375049', '491289', '344413', '311652', '291498']
+
+YORK_PA_BBOX = '39.85,40.10,-76.85,-76.60'
 
 
 def get_events():
@@ -77,34 +78,32 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': API_HOST
     }
-
-    url = 'https://' + API_HOST + '/properties/list'
+    url = 'https://' + API_HOST + '/properties/list-by-map'
     params = {
-        'ufi': DEST_ID,
-        
-        'arrival_date': checkin,
-        'departure_date': checkout,
-        'guest_qty': '2',
-        'room_qty': '1',
+        'search_id': 'none',
+        'children_age': '5,0',
         'price_filter_currencycode': 'USD',
         'languagecode': 'en-us',
+        'travel_purpose': 'leisure',
+        'children_qty': '0',
         'order_by': 'popularity',
-        'units': 'metric',
-        'include_adjacency': 'true',
+        'guest_qty': '2',
+        'room_qty': '1',
+        'checkin_date': checkin,
+        'checkout_date': checkout,
+        'bbox': YORK_PA_BBOX,
+        'categories_filter': 'class::1,class::2,class::3',
     }
-
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
         print('Status: ' + str(response.status_code))
         data = response.json()
         raw = json.dumps(data)
-        print('Preview: ' + raw[:300])
+        print('Preview: ' + raw[:400])
 
         result_list = []
         if isinstance(data, dict):
             result_list = data.get('result', [])
-            if not result_list:
-                result_list = data.get('data', {}).get('result', [])
         elif isinstance(data, list):
             result_list = data
 
@@ -116,7 +115,6 @@ def fetch_rates_for_date(checkin):
             hotel_id = str(item.get('hotel_id', ''))
             hotel_name = item.get('hotel_name', '')
             price = None
-
             cpb = item.get('composite_price_breakdown', {})
             if cpb:
                 gross = cpb.get('gross_amount_per_night', {})
@@ -132,7 +130,7 @@ def fetch_rates_for_date(checkin):
                 else:
                     rates[hotel_id] = 'N/A'
             else:
-                if price is not None:
+                if price is not None and hotel_name:
                     print('Unmatched: ' + hotel_name + ' id=' + hotel_id + ' $' + str(int(round(float(price)))))
 
     except Exception as e:
@@ -212,7 +210,6 @@ def build_email(all_rates, dates, events):
     today_rows = build_rows(today_rates, True)
     friday_rows = build_rows(friday_rates, False)
     saturday_rows = build_rows(saturday_rates, False)
-
     lowest_tonight = get_lowest(today_rates)
     highest_tonight = get_highest(today_rates)
 
