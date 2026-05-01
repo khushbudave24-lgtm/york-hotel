@@ -27,8 +27,9 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
 
-# York PA bbox in format lat_min,lat_max,lng_min,lng_max (same format as Manila example that worked)
-YORK_BBOX = '39.8626,40.2626,-77.0272,-76.4272'
+# York PA city center: 39.9626, -76.7272
+# Tight bbox around York PA only — lat_min,lat_max,lng_min,lng_max
+YORK_BBOX = '39.9000,40.0200,-76.8500,-76.6000'
 
 
 def match_hotel(hotel_name):
@@ -113,8 +114,6 @@ def fetch_rates_for_date(checkin):
         response = requests.get(url, headers=headers, params=params, timeout=20)
         print('Status: ' + str(response.status_code))
         data = response.json()
-        raw = json.dumps(data)
-        print('Preview: ' + raw[:400])
         result_list = data.get('result', []) if isinstance(data, dict) else []
         print('Properties returned: ' + str(len(result_list)))
         for item in result_list:
