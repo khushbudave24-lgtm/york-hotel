@@ -27,9 +27,10 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
 
-# York PA city center: 39.9626, -76.7272
-# Tight bbox around York PA only — lat_min,lat_max,lng_min,lng_max
-YORK_BBOX = '39.9000,40.0200,-76.8500,-76.6000'
+# York PA center: 39.9626, -76.7272
+# Using same wide format as the run that returned 9-11 hotels
+# but shifted east to center on York instead of Harrisburg
+YORK_BBOX = '39.9126,40.0126,-76.8272,-76.6272'
 
 
 def match_hotel(hotel_name):
