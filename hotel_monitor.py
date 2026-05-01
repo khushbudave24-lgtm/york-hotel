@@ -27,10 +27,8 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
 
-YORK_LAT = 39.9626
-YORK_LNG = -76.7272
-RADIUS = 0.3
-YORK_BBOX = str(YORK_LAT - RADIUS) + ',' + str(YORK_LNG - RADIUS) + ',' + str(YORK_LAT + RADIUS) + ',' + str(YORK_LNG + RADIUS)
+# York PA bbox in format lat_min,lat_max,lng_min,lng_max (same format as Manila example that worked)
+YORK_BBOX = '39.8626,40.2626,-77.0272,-76.4272'
 
 
 def match_hotel(hotel_name):
@@ -96,8 +94,6 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': API_HOST
     }
-
-    print('Using bbox: ' + YORK_BBOX)
     url = 'https://' + API_HOST + '/properties/list-by-map'
     params = {
         'search_id': 'none',
@@ -113,17 +109,14 @@ def fetch_rates_for_date(checkin):
         'departure_date': checkout,
         'bbox': YORK_BBOX,
     }
-
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
         print('Status: ' + str(response.status_code))
         data = response.json()
         raw = json.dumps(data)
-        print('Preview: ' + raw[:500])
-
+        print('Preview: ' + raw[:400])
         result_list = data.get('result', []) if isinstance(data, dict) else []
         print('Properties returned: ' + str(len(result_list)))
-
         for item in result_list:
             if not isinstance(item, dict):
                 continue
@@ -139,10 +132,8 @@ def fetch_rates_for_date(checkin):
             else:
                 if price is not None and hotel_name:
                     print('Unmatched: ' + hotel_name + ' $' + str(int(round(float(price)))))
-
     except Exception as e:
         print('Error: ' + str(e))
-
     return rates
 
 
