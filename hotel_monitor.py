@@ -18,16 +18,14 @@ API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 YORK_HOTELS = {
     'ramada': {'keywords': ['ramada'], 'display': 'Ramada by Wyndham York'},
     'inn_york': {'keywords': ['inn at york'], 'display': 'Inn at York'},
-    'motel6': {'keywords': ['motel 6-york', 'motel 6 york'], 'display': 'Motel 6 York PA'},
-    'motel6north': {'keywords': ['motel 6-north', 'motel 6 north york'], 'display': 'Motel 6 North York PA'},
+    'motel6': {'keywords': ['motel 6-york'], 'display': 'Motel 6 York PA'},
+    'motel6north': {'keywords': ['motel 6-north'], 'display': 'Motel 6 North York PA'},
     'redroof': {'keywords': ['red roof'], 'display': 'Red Roof Inn York'},
     'daysinn': {'keywords': ['days inn'], 'display': 'Days Inn York'},
     'qualityinn': {'keywords': ['quality inn'], 'display': 'Quality Inn York East'},
 }
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
-
-YORK_BBOX = '39.8,-76.9,40.1,-76.5'
 
 
 def match_hotel(hotel_name):
@@ -93,27 +91,42 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': API_HOST
     }
-    url = 'https://' + API_HOST + '/properties/list-by-map'
+
+    url = 'https://' + API_HOST + '/properties/v2/list'
     params = {
-        'search_id': 'none',
-        'children_age': '5,0',
-        'price_filter_currencycode': 'USD',
-        'languagecode': 'en-us',
-        'travel_purpose': 'leisure',
-        'children_qty': '0',
-        'order_by': 'popularity',
-        'guest_qty': '2',
-        'room_qty': '1',
+        'dest_id': '20114931',
+        'search_type': 'city',
         'arrival_date': checkin,
         'departure_date': checkout,
-        'bbox': YORK_BBOX,
+        'adults': '2',
+        'room_qty': '1',
+        'price_filter_currencycode': 'USD',
+        'languagecode': 'en-us',
+        'order_by': 'popularity',
+        'offset': '0',
+        'units': 'metric',
     }
+
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
-        print('Status: ' + str(response.status_code))
+        print('v2/list status: ' + str(response.status_code))
         data = response.json()
-        result_list = data.get('result', []) if isinstance(data, dict) else []
-        print('Total properties returned: ' + str(len(result_list)))
+        raw = json.dumps(data)
+        print('Preview: ' + raw[:400])
+
+        result_list = []
+        if isinstance(data, dict):
+            result_list = data.get('result', [])
+            if not result_list:
+                inner = data.get('data', {})
+                if isinstance(inner, dict):
+                    result_list = inner.get('result', [])
+                elif isinstance(inner, list):
+                    result_list = inner
+        elif isinstance(data, list):
+            result_list = data
+
+        print('Properties returned: ' + str(len(result_list)))
 
         for item in result_list:
             if not isinstance(item, dict):
@@ -127,9 +140,8 @@ def fetch_rates_for_date(checkin):
                     print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
                 else:
                     rates[matched_key] = 'N/A'
-                    print('MATCHED no price: ' + hotel_name)
             else:
-                if price is not None:
+                if price is not None and hotel_name:
                     print('Unmatched: ' + hotel_name + ' $' + str(int(round(float(price)))))
 
     except Exception as e:
