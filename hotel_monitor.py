@@ -15,25 +15,30 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
+# Match by ANY of these keywords — handles both hotel and motel naming
 YORK_HOTELS = {
     'ramada': {'keywords': ['ramada'], 'display': 'Ramada by Wyndham York'},
     'inn_york': {'keywords': ['inn at york'], 'display': 'Inn at York'},
-    'motel6': {'keywords': ['motel 6-york'], 'display': 'Motel 6 York PA'},
-    'motel6north': {'keywords': ['motel 6-north'], 'display': 'Motel 6 North York PA'},
+    'motel6': {'keywords': ['motel 6'], 'display': 'Motel 6 York PA'},
+    'motel6north': {'keywords': ['motel 6', 'north'], 'display': 'Motel 6 North York PA'},
     'redroof': {'keywords': ['red roof'], 'display': 'Red Roof Inn York'},
     'daysinn': {'keywords': ['days inn'], 'display': 'Days Inn York'},
     'qualityinn': {'keywords': ['quality inn'], 'display': 'Quality Inn York East'},
 }
 
-HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
+HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6north', 'motel6', 'redroof', 'daysinn', 'qualityinn']
 
-# Wider bbox around York PA to catch all hotels
-YORK_BBOX = '39.8626,40.0626,-76.8772,-76.5772'
+# bbox that returned 9-11 properties previously — same format lat_min,lat_max,lng_min,lng_max
+YORK_BBOX = '39.8626,40.2626,-77.0272,-76.4272'
 
 
 def match_hotel(hotel_name):
     name_lower = hotel_name.lower()
-    for key, info in YORK_HOTELS.items():
+    # Check motel6north first since it has more specific keywords
+    if 'motel 6' in name_lower and 'north' in name_lower:
+        return 'motel6north'
+    for key in ['ramada', 'inn_york', 'motel6', 'redroof', 'daysinn', 'qualityinn']:
+        info = YORK_HOTELS[key]
         if all(kw in name_lower for kw in info['keywords']):
             return key
     return None
@@ -108,7 +113,6 @@ def fetch_rates_for_date(checkin):
         'arrival_date': checkin,
         'departure_date': checkout,
         'bbox': YORK_BBOX,
-        'categories_filter': 'class::1,class::2,class::3,class::4',
     }
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
