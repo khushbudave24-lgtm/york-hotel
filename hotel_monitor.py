@@ -27,6 +27,11 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
 
+YORK_LAT = 39.9626
+YORK_LNG = -76.7272
+RADIUS = 0.3
+YORK_BBOX = str(YORK_LAT - RADIUS) + ',' + str(YORK_LNG - RADIUS) + ',' + str(YORK_LAT + RADIUS) + ',' + str(YORK_LNG + RADIUS)
+
 
 def match_hotel(hotel_name):
     name_lower = hotel_name.lower()
@@ -92,40 +97,31 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Host': API_HOST
     }
 
-    url = 'https://' + API_HOST + '/properties/v2/list'
+    print('Using bbox: ' + YORK_BBOX)
+    url = 'https://' + API_HOST + '/properties/list-by-map'
     params = {
-        'dest_id': '20114931',
-        'search_type': 'city',
-        'arrival_date': checkin,
-        'departure_date': checkout,
-        'adults': '2',
-        'room_qty': '1',
+        'search_id': 'none',
+        'children_age': '5,0',
         'price_filter_currencycode': 'USD',
         'languagecode': 'en-us',
+        'travel_purpose': 'leisure',
+        'children_qty': '0',
         'order_by': 'popularity',
-        'offset': '0',
-        'units': 'metric',
+        'guest_qty': '2',
+        'room_qty': '1',
+        'arrival_date': checkin,
+        'departure_date': checkout,
+        'bbox': YORK_BBOX,
     }
 
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
-        print('v2/list status: ' + str(response.status_code))
+        print('Status: ' + str(response.status_code))
         data = response.json()
         raw = json.dumps(data)
-        print('Preview: ' + raw[:400])
+        print('Preview: ' + raw[:500])
 
-        result_list = []
-        if isinstance(data, dict):
-            result_list = data.get('result', [])
-            if not result_list:
-                inner = data.get('data', {})
-                if isinstance(inner, dict):
-                    result_list = inner.get('result', [])
-                elif isinstance(inner, list):
-                    result_list = inner
-        elif isinstance(data, list):
-            result_list = data
-
+        result_list = data.get('result', []) if isinstance(data, dict) else []
         print('Properties returned: ' + str(len(result_list)))
 
         for item in result_list:
