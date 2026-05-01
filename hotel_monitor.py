@@ -27,10 +27,8 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6', 'motel6north', 'redroof', 'daysinn', 'qualityinn']
 
-# York PA center: 39.9626, -76.7272
-# Using same wide format as the run that returned 9-11 hotels
-# but shifted east to center on York instead of Harrisburg
-YORK_BBOX = '39.9126,40.0126,-76.8272,-76.6272'
+# Wider bbox around York PA to catch all hotels
+YORK_BBOX = '39.8626,40.0626,-76.8772,-76.5772'
 
 
 def match_hotel(hotel_name):
@@ -110,6 +108,7 @@ def fetch_rates_for_date(checkin):
         'arrival_date': checkin,
         'departure_date': checkout,
         'bbox': YORK_BBOX,
+        'categories_filter': 'class::1,class::2,class::3,class::4',
     }
     try:
         response = requests.get(url, headers=headers, params=params, timeout=20)
