@@ -27,16 +27,13 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6north', 'motel6', 'redroof', 'daysinn', 'qualityinn']
 
-# All possible dest_ids and search_types for York PA area
-DEST_IDS_TO_TRY = [
-    {'dest_id': '20114931', 'search_type': 'city', 'label': 'ufi-city'},
-    {'dest_id': '20114931', 'search_type': 'region', 'label': 'ufi-region'},
-    {'dest_id': '-756290', 'search_type': 'city', 'label': '-756290-city'},
-    {'dest_id': '-6183234', 'search_type': 'city', 'label': 'york-pa-6183234'},
-    {'dest_id': '6183234', 'search_type': 'city', 'label': 'york-pa-pos-6183234'},
-    {'dest_id': '900038684', 'search_type': 'city', 'label': 'york-900038684'},
-    {'dest_id': '20048404', 'search_type': 'city', 'label': 'york-20048404'},
-    {'dest_id': '20114931', 'search_type': 'landmark', 'label': 'ufi-landmark'},
+# York PA exact center: 39.9623, -76.7277
+# Try multiple bbox sizes centered on York PA
+BBOXES_TO_TRY = [
+    ('39.9423,40.0023,-76.7877,-76.6677', 'tight-0.06'),
+    ('39.9123,40.0123,-76.8277,-76.6277', 'medium-0.1'),
+    ('39.8623,40.0623,-76.8777,-76.5777', 'wide-0.2'),
+    ('39.7623,40.1623,-77.0277,-76.4277', 'verywide-0.4'),
 ]
 
 
@@ -106,32 +103,30 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Host': API_HOST
     }
 
-    for dest_config in DEST_IDS_TO_TRY:
-        if len(rates) >= 4:
-            break
-        url = 'https://' + API_HOST + '/properties/v2/list'
+    for bbox, label in BBOXES_TO_TRY:
+        url = 'https://' + API_HOST + '/properties/list-by-map'
         params = {
-            'dest_id': dest_config['dest_id'],
-            'search_type': dest_config['search_type'],
-            'arrival_date': checkin,
-            'departure_date': checkout,
-            'adults': '2',
-            'room_qty': '1',
+            'search_id': 'none',
+            'children_age': '5,0',
             'price_filter_currencycode': 'USD',
             'languagecode': 'en-us',
+            'travel_purpose': 'leisure',
+            'children_qty': '0',
             'order_by': 'popularity',
-            'units': 'metric',
-            'offset': '0',
+            'guest_qty': '2',
+            'room_qty': '1',
+            'arrival_date': checkin,
+            'departure_date': checkout,
+            'bbox': bbox,
         }
         try:
             response = requests.get(url, headers=headers, params=params, timeout=15)
             data = response.json()
             result_list = data.get('result', []) if isinstance(data, dict) else []
-            msg = data.get('message', '') if isinstance(data, dict) else ''
-            print(dest_config['label'] + ': ' + str(len(result_list)) + ' results' + (' | ' + str(msg) if msg else ''))
-            for item in result_list[:2]:
+            print(label + ': ' + str(len(result_list)) + ' results')
+            for item in result_list[:3]:
                 if isinstance(item, dict):
-                    print('  -> ' + item.get('hotel_name', '') + ' | ' + item.get('city', ''))
+                    print('  -> ' + item.get('hotel_name', '') + ' | city:' + str(item.get('city', '')))
             for item in result_list:
                 if not isinstance(item, dict):
                     continue
@@ -143,7 +138,7 @@ def fetch_rates_for_date(checkin):
                         rates[matched_key] = '$' + str(int(round(float(price))))
                         print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
         except Exception as e:
-            print(dest_config['label'] + ' error: ' + str(e))
+            print(label + ' error: ' + str(e))
         time.sleep(0.5)
 
     return rates
