@@ -27,14 +27,9 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6north', 'motel6', 'redroof', 'daysinn', 'qualityinn']
 
-# York PA exact center: 39.9623, -76.7277
-# Try multiple bbox sizes centered on York PA
-BBOXES_TO_TRY = [
-    ('39.9423,40.0023,-76.7877,-76.6677', 'tight-0.06'),
-    ('39.9123,40.0123,-76.8277,-76.6277', 'medium-0.1'),
-    ('39.8623,40.0623,-76.8777,-76.5777', 'wide-0.2'),
-    ('39.7623,40.1623,-77.0277,-76.4277', 'verywide-0.4'),
-]
+# York PA center: 39.9623, -76.7277
+# Going very wide — 1.0 degree radius in all directions (~70 miles)
+YORK_BBOX = '38.9623,40.9623,-77.7277,-75.7277'
 
 
 def match_hotel(hotel_name):
@@ -102,45 +97,42 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': API_HOST
     }
-
-    for bbox, label in BBOXES_TO_TRY:
-        url = 'https://' + API_HOST + '/properties/list-by-map'
-        params = {
-            'search_id': 'none',
-            'children_age': '5,0',
-            'price_filter_currencycode': 'USD',
-            'languagecode': 'en-us',
-            'travel_purpose': 'leisure',
-            'children_qty': '0',
-            'order_by': 'popularity',
-            'guest_qty': '2',
-            'room_qty': '1',
-            'arrival_date': checkin,
-            'departure_date': checkout,
-            'bbox': bbox,
-        }
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=15)
-            data = response.json()
-            result_list = data.get('result', []) if isinstance(data, dict) else []
-            print(label + ': ' + str(len(result_list)) + ' results')
-            for item in result_list[:3]:
-                if isinstance(item, dict):
-                    print('  -> ' + item.get('hotel_name', '') + ' | city:' + str(item.get('city', '')))
-            for item in result_list:
-                if not isinstance(item, dict):
-                    continue
-                hotel_name = item.get('hotel_name', '')
-                price = get_price(item)
-                matched_key = match_hotel(hotel_name)
-                if matched_key and matched_key not in rates:
-                    if price is not None:
-                        rates[matched_key] = '$' + str(int(round(float(price))))
-                        print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
-        except Exception as e:
-            print(label + ' error: ' + str(e))
-        time.sleep(0.5)
-
+    url = 'https://' + API_HOST + '/properties/list-by-map'
+    params = {
+        'search_id': 'none',
+        'children_age': '5,0',
+        'price_filter_currencycode': 'USD',
+        'languagecode': 'en-us',
+        'travel_purpose': 'leisure',
+        'children_qty': '0',
+        'order_by': 'popularity',
+        'guest_qty': '2',
+        'room_qty': '1',
+        'arrival_date': checkin,
+        'departure_date': checkout,
+        'bbox': YORK_BBOX,
+    }
+    try:
+        response = requests.get(url, headers=headers, params=params, timeout=20)
+        data = response.json()
+        result_list = data.get('result', []) if isinstance(data, dict) else []
+        print('Total results: ' + str(len(result_list)))
+        for item in result_list:
+            if not isinstance(item, dict):
+                continue
+            hotel_name = item.get('hotel_name', '')
+            city = item.get('city', '')
+            price = get_price(item)
+            matched_key = match_hotel(hotel_name)
+            if matched_key and matched_key not in rates:
+                if price is not None:
+                    rates[matched_key] = '$' + str(int(round(float(price))))
+                    print('MATCHED: ' + hotel_name + ' city:' + city + ' = ' + rates[matched_key])
+            else:
+                if price is not None and hotel_name:
+                    print('Unmatched: ' + hotel_name + ' city:' + city + ' $' + str(int(round(float(price)))))
+    except Exception as e:
+        print('Error: ' + str(e))
     return rates
 
 
@@ -265,7 +257,7 @@ def main():
         all_rates[date] = rates
         for key in HOTEL_DISPLAY_ORDER:
             print('  ' + YORK_HOTELS[key]['display'] + ': ' + rates.get(key, 'N/A'))
-        time.sleep(1)
+        time.sleep(2)
     print('Checking York PA events...')
     events = get_events()
     print('Found ' + str(len(events)) + ' events this month')
