@@ -27,6 +27,18 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6north', 'motel6', 'redroof', 'daysinn', 'qualityinn']
 
+# All possible dest_ids and search_types for York PA area
+DEST_IDS_TO_TRY = [
+    {'dest_id': '20114931', 'search_type': 'city', 'label': 'ufi-city'},
+    {'dest_id': '20114931', 'search_type': 'region', 'label': 'ufi-region'},
+    {'dest_id': '-756290', 'search_type': 'city', 'label': '-756290-city'},
+    {'dest_id': '-6183234', 'search_type': 'city', 'label': 'york-pa-6183234'},
+    {'dest_id': '6183234', 'search_type': 'city', 'label': 'york-pa-pos-6183234'},
+    {'dest_id': '900038684', 'search_type': 'city', 'label': 'york-900038684'},
+    {'dest_id': '20048404', 'search_type': 'city', 'label': 'york-20048404'},
+    {'dest_id': '20114931', 'search_type': 'landmark', 'label': 'ufi-landmark'},
+]
+
 
 def match_hotel(hotel_name):
     name_lower = hotel_name.lower()
@@ -94,18 +106,13 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Host': API_HOST
     }
 
-    # Try multiple dest_ids to find the correct York PA one
-    dest_ids_to_try = [
-        ('-756290', 'York PA -756290'),
-        ('-756559', 'York PA -756559'),
-        ('20096548', 'York PA 20096548'),
-    ]
-
-    for dest_id, label in dest_ids_to_try:
+    for dest_config in DEST_IDS_TO_TRY:
+        if len(rates) >= 4:
+            break
         url = 'https://' + API_HOST + '/properties/v2/list'
         params = {
-            'dest_id': dest_id,
-            'search_type': 'city',
+            'dest_id': dest_config['dest_id'],
+            'search_type': dest_config['search_type'],
             'arrival_date': checkin,
             'departure_date': checkout,
             'adults': '2',
@@ -120,11 +127,11 @@ def fetch_rates_for_date(checkin):
             response = requests.get(url, headers=headers, params=params, timeout=15)
             data = response.json()
             result_list = data.get('result', []) if isinstance(data, dict) else []
-            print(label + ' returned ' + str(len(result_list)) + ' properties')
-            if result_list:
-                for item in result_list[:3]:
-                    if isinstance(item, dict):
-                        print('  Sample: ' + item.get('hotel_name', '') + ' ' + item.get('city', ''))
+            msg = data.get('message', '') if isinstance(data, dict) else ''
+            print(dest_config['label'] + ': ' + str(len(result_list)) + ' results' + (' | ' + str(msg) if msg else ''))
+            for item in result_list[:2]:
+                if isinstance(item, dict):
+                    print('  -> ' + item.get('hotel_name', '') + ' | ' + item.get('city', ''))
             for item in result_list:
                 if not isinstance(item, dict):
                     continue
@@ -136,8 +143,8 @@ def fetch_rates_for_date(checkin):
                         rates[matched_key] = '$' + str(int(round(float(price))))
                         print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
         except Exception as e:
-            print(label + ' error: ' + str(e))
-        time.sleep(1)
+            print(dest_config['label'] + ' error: ' + str(e))
+        time.sleep(0.5)
 
     return rates
 
@@ -258,7 +265,7 @@ def main():
     print('Fetching rates for: ' + today_str + ', ' + friday_str + ', ' + saturday_str)
     all_rates = {}
     for date in [today_str, friday_str, saturday_str]:
-        print('Fetching date: ' + date)
+        print('--- ' + date + ' ---')
         rates = fetch_rates_for_date(date)
         all_rates[date] = rates
         for key in HOTEL_DISPLAY_ORDER:
