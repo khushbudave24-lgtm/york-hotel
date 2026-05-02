@@ -15,12 +15,11 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
-# Match by ANY of these keywords — handles both hotel and motel naming
 YORK_HOTELS = {
     'ramada': {'keywords': ['ramada'], 'display': 'Ramada by Wyndham York'},
     'inn_york': {'keywords': ['inn at york'], 'display': 'Inn at York'},
-    'motel6': {'keywords': ['motel 6'], 'display': 'Motel 6 York PA'},
     'motel6north': {'keywords': ['motel 6', 'north'], 'display': 'Motel 6 North York PA'},
+    'motel6': {'keywords': ['motel 6'], 'display': 'Motel 6 York PA'},
     'redroof': {'keywords': ['red roof'], 'display': 'Red Roof Inn York'},
     'daysinn': {'keywords': ['days inn'], 'display': 'Days Inn York'},
     'qualityinn': {'keywords': ['quality inn'], 'display': 'Quality Inn York East'},
@@ -28,18 +27,13 @@ YORK_HOTELS = {
 
 HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6north', 'motel6', 'redroof', 'daysinn', 'qualityinn']
 
-# bbox that returned 9-11 properties previously — same format lat_min,lat_max,lng_min,lng_max
-YORK_BBOX = '39.8626,40.2626,-77.0272,-76.4272'
-
 
 def match_hotel(hotel_name):
     name_lower = hotel_name.lower()
-    # Check motel6north first since it has more specific keywords
     if 'motel 6' in name_lower and 'north' in name_lower:
         return 'motel6north'
     for key in ['ramada', 'inn_york', 'motel6', 'redroof', 'daysinn', 'qualityinn']:
-        info = YORK_HOTELS[key]
-        if all(kw in name_lower for kw in info['keywords']):
+        if all(kw in name_lower for kw in YORK_HOTELS[key]['keywords']):
             return key
     return None
 
@@ -99,44 +93,52 @@ def fetch_rates_for_date(checkin):
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': API_HOST
     }
-    url = 'https://' + API_HOST + '/properties/list-by-map'
-    params = {
-        'search_id': 'none',
-        'children_age': '5,0',
-        'price_filter_currencycode': 'USD',
-        'languagecode': 'en-us',
-        'travel_purpose': 'leisure',
-        'children_qty': '0',
-        'order_by': 'popularity',
-        'guest_qty': '2',
-        'room_qty': '1',
-        'arrival_date': checkin,
-        'departure_date': checkout,
-        'bbox': YORK_BBOX,
-    }
-    try:
-        response = requests.get(url, headers=headers, params=params, timeout=20)
-        print('Status: ' + str(response.status_code))
-        data = response.json()
-        result_list = data.get('result', []) if isinstance(data, dict) else []
-        print('Properties returned: ' + str(len(result_list)))
-        for item in result_list:
-            if not isinstance(item, dict):
-                continue
-            hotel_name = item.get('hotel_name', '')
-            price = get_price(item)
-            matched_key = match_hotel(hotel_name)
-            if matched_key:
-                if price is not None:
-                    rates[matched_key] = '$' + str(int(round(float(price))))
-                    print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
-                else:
-                    rates[matched_key] = 'N/A'
-            else:
-                if price is not None and hotel_name:
-                    print('Unmatched: ' + hotel_name + ' $' + str(int(round(float(price)))))
-    except Exception as e:
-        print('Error: ' + str(e))
+
+    # Try multiple dest_ids to find the correct York PA one
+    dest_ids_to_try = [
+        ('-756290', 'York PA -756290'),
+        ('-756559', 'York PA -756559'),
+        ('20096548', 'York PA 20096548'),
+    ]
+
+    for dest_id, label in dest_ids_to_try:
+        url = 'https://' + API_HOST + '/properties/v2/list'
+        params = {
+            'dest_id': dest_id,
+            'search_type': 'city',
+            'arrival_date': checkin,
+            'departure_date': checkout,
+            'adults': '2',
+            'room_qty': '1',
+            'price_filter_currencycode': 'USD',
+            'languagecode': 'en-us',
+            'order_by': 'popularity',
+            'units': 'metric',
+            'offset': '0',
+        }
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=15)
+            data = response.json()
+            result_list = data.get('result', []) if isinstance(data, dict) else []
+            print(label + ' returned ' + str(len(result_list)) + ' properties')
+            if result_list:
+                for item in result_list[:3]:
+                    if isinstance(item, dict):
+                        print('  Sample: ' + item.get('hotel_name', '') + ' ' + item.get('city', ''))
+            for item in result_list:
+                if not isinstance(item, dict):
+                    continue
+                hotel_name = item.get('hotel_name', '')
+                price = get_price(item)
+                matched_key = match_hotel(hotel_name)
+                if matched_key and matched_key not in rates:
+                    if price is not None:
+                        rates[matched_key] = '$' + str(int(round(float(price))))
+                        print('MATCHED: ' + hotel_name + ' = ' + rates[matched_key])
+        except Exception as e:
+            print(label + ' error: ' + str(e))
+        time.sleep(1)
+
     return rates
 
 
@@ -261,7 +263,7 @@ def main():
         all_rates[date] = rates
         for key in HOTEL_DISPLAY_ORDER:
             print('  ' + YORK_HOTELS[key]['display'] + ': ' + rates.get(key, 'N/A'))
-        time.sleep(2)
+        time.sleep(1)
     print('Checking York PA events...')
     events = get_events()
     print('Found ' + str(len(events)) + ' events this month')
