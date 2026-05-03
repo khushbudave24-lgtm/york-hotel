@@ -62,6 +62,43 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
+def find_price_in_dict(d, depth=0):
+    if depth > 5:
+        return None
+    if not isinstance(d, dict):
+        return None
+    price_keys = ['gross_price', 'gross_amount', 'value', 'amount', 'price', 'gross_amount_per_night', 'net_amount', 'all_inclusive_amount']
+    parent_keys = ['price_breakdown', 'composite_price_breakdown', 'product_price_breakdown', 'min_price', 'price']
+    for pk in parent_keys:
+        if pk in d and isinstance(d[pk], dict):
+            for key in price_keys:
+                val = d[pk].get(key)
+                if val is not None:
+                    try:
+                        return float(val)
+                    except Exception:
+                        pass
+                nested = d[pk].get(key)
+                if isinstance(nested, dict):
+                    v = nested.get('value') or nested.get('amount')
+                    if v is not None:
+                        try:
+                            return float(v)
+                        except Exception:
+                            pass
+    for key, val in d.items():
+        if key in price_keys and val is not None:
+            try:
+                return float(val)
+            except Exception:
+                pass
+        if isinstance(val, dict):
+            result = find_price_in_dict(val, depth + 1)
+            if result is not None:
+                return result
+    return None
+
+
 def fetch_rate(hotel_id, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
     headers = {
@@ -84,56 +121,70 @@ def fetch_rate(hotel_id, checkin):
         response = requests.get(url, headers=headers, params=params, timeout=15)
         data = response.json()
 
-        # Response is a LIST - get first item
-        if isinstance(data, list) and len(data) > 0:
-            item = data[0]
-        elif isinstance(data, dict):
-            item = data
-        else:
-            print('  unexpected response type')
+        item = data[0] if isinstance(data, list) and len(data) > 0 else data if isinstance(data, dict) else None
+        if item is None:
             return 'N/A'
-
-        print('  hotel: ' + str(item.get('hotel_name_trans', item.get('hotel_name', ''))))
-        print('  city: ' + str(item.get('city', item.get('city_in_trans', ''))))
 
         price = None
 
-        # Try product_price_breakdown
+        # Method 1: product_price_breakdown
         ppb = item.get('product_price_breakdown', {})
-        if ppb and isinstance(ppb, dict):
-            gross = ppb.get('gross_amount_per_night', {})
-            if gross and isinstance(gross, dict):
-                price = gross.get('value')
+        if isinstance(ppb, dict):
+            for key in ['gross_amount_per_night', 'gross_amount', 'all_inclusive_amount', 'net_amount']:
+                val = ppb.get(key, {})
+                if isinstance(val, dict) and val.get('value'):
+                    price = float(val['value'])
+                    break
 
-        # Try composite_price_breakdown
+        # Method 2: composite_price_breakdown
         if price is None:
             cpb = item.get('composite_price_breakdown', {})
-            if cpb and isinstance(cpb, dict):
-                gross = cpb.get('gross_amount_per_night', {})
-                if gross and isinstance(gross, dict):
-                    price = gross.get('value')
+            if isinstance(cpb, dict):
+                for key in ['gross_amount_per_night', 'gross_amount', 'all_inclusive_amount']:
+                    val = cpb.get(key, {})
+                    if isinstance(val, dict) and val.get('value'):
+                        price = float(val['value'])
+                        break
 
-        # Try min_total_price
+        # Method 3: direct fields
         if price is None:
-            price = item.get('min_total_price')
+            for field in ['min_total_price', 'composite_price', 'price_breakdown']:
+                val = item.get(field)
+                if val is not None:
+                    if isinstance(val, (int, float)):
+                        price = float(val)
+                        break
+                    elif isinstance(val, dict):
+                        p = val.get('gross_price') or val.get('value') or val.get('amount')
+                        if p is not None:
+                            price = float(p)
+                            break
 
-        # Try rooms blocks
+        # Method 4: rooms blocks
         if price is None:
             rooms = item.get('rooms', {})
             if isinstance(rooms, dict):
                 for rid, rdata in rooms.items():
                     if isinstance(rdata, dict):
                         for block in rdata.get('block', []):
-                            p = block.get('price_breakdown', {}).get('gross_price')
-                            if p is not None and (price is None or float(p) < float(price)):
-                                price = p
+                            if isinstance(block, dict):
+                                pb = block.get('price_breakdown', {})
+                                if isinstance(pb, dict):
+                                    p = pb.get('gross_price') or pb.get('value')
+                                    if p is not None and (price is None or float(p) < price):
+                                        price = float(p)
 
-        if price is not None:
-            result = '$' + str(int(round(float(price))))
+        # Method 5: deep search
+        if price is None:
+            price = find_price_in_dict(item)
+
+        if price is not None and price > 0:
+            result = '$' + str(int(round(price)))
             print('  price: ' + result)
             return result
 
-        print('  no price found in response')
+        # Log all top-level keys to help debug
+        print('  keys: ' + str(list(item.keys())[:10]))
         return 'N/A'
 
     except Exception as e:
