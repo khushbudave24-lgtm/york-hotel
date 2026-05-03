@@ -15,21 +15,15 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
-# Hotel IDs confirmed from your RapidAPI playground test
-# Ramada hotel_id: 342291 returned $70.55
-# Inn at York hotel_id: 290380 returned $79.19
-# Motel 6 hotel_id: 375049
 HOTELS = [
-    {'id': '342291',  'display': 'Ramada by Wyndham York'},
-    {'id': '290380',  'display': 'Inn at York'},
-    {'id': '375049',  'display': 'Motel 6 York PA'},
-    {'id': '491289',  'display': 'Motel 6 North York PA'},
-    {'id': '344413',  'display': 'Red Roof Inn York'},
-    {'id': '311652',  'display': 'Days Inn York'},
-    {'id': '291498',  'display': 'Quality Inn York East'},
+    {'id': '342291', 'display': 'Ramada by Wyndham York'},
+    {'id': '290380', 'display': 'Inn at York'},
+    {'id': '375049', 'display': 'Motel 6 York PA'},
+    {'id': '491289', 'display': 'Motel 6 North York PA'},
+    {'id': '344413', 'display': 'Red Roof Inn York'},
+    {'id': '311652', 'display': 'Days Inn York'},
+    {'id': '291498', 'display': 'Quality Inn York East'},
 ]
-
-HOTEL_KEYS = [h['id'] for h in HOTELS]
 
 
 def get_events():
@@ -42,7 +36,7 @@ def get_events():
             {'name': 'York Saint Patricks Day Parade', 'date': 'Mar 14', 'venue': 'Downtown York', 'impact': 'MODERATE'}],
         4: [{'name': 'York Train Show', 'date': 'Apr 20-25', 'venue': 'York Expo Center', 'impact': 'HIGH'}],
         5: [{'name': 'Give Local York', 'date': 'Apr 30 - May 1', 'venue': 'York County', 'impact': 'HIGH'},
-            {'name': 'York Revolution Baseball Opener', 'date': 'May 2026', 'venue': 'WellSpan Park', 'impact': 'MODERATE'}],
+            {'name': 'York Revolution Baseball', 'date': 'May 2026', 'venue': 'WellSpan Park', 'impact': 'MODERATE'}],
         6: [{'name': 'York County Pride', 'date': 'Jun 13', 'venue': 'York', 'impact': 'MODERATE'},
             {'name': 'Penn-Mar Irish Festival', 'date': 'Jun 20', 'venue': 'York County', 'impact': 'MODERATE'},
             {'name': 'Lincoln Highway Conference', 'date': 'Jun 22-26', 'venue': 'York', 'impact': 'HIGH'}],
@@ -88,28 +82,60 @@ def fetch_rate(hotel_id, checkin):
     }
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
-        print('  detail status: ' + str(response.status_code))
         data = response.json()
-        raw = json.dumps(data)
-        print('  preview: ' + raw[:200])
+
+        # Response is a LIST - get first item
+        if isinstance(data, list) and len(data) > 0:
+            item = data[0]
+        elif isinstance(data, dict):
+            item = data
+        else:
+            print('  unexpected response type')
+            return 'N/A'
+
+        print('  hotel: ' + str(item.get('hotel_name_trans', item.get('hotel_name', ''))))
+        print('  city: ' + str(item.get('city', item.get('city_in_trans', ''))))
+
         price = None
-        pb = data.get('product_price_breakdown', {})
-        if pb:
-            gross = pb.get('gross_amount_per_night', {})
-            if gross:
+
+        # Try product_price_breakdown
+        ppb = item.get('product_price_breakdown', {})
+        if ppb and isinstance(ppb, dict):
+            gross = ppb.get('gross_amount_per_night', {})
+            if gross and isinstance(gross, dict):
                 price = gross.get('value')
+
+        # Try composite_price_breakdown
         if price is None:
-            price = data.get('min_total_price')
+            cpb = item.get('composite_price_breakdown', {})
+            if cpb and isinstance(cpb, dict):
+                gross = cpb.get('gross_amount_per_night', {})
+                if gross and isinstance(gross, dict):
+                    price = gross.get('value')
+
+        # Try min_total_price
         if price is None:
-            rooms = data.get('rooms', {})
-            for rid, rdata in rooms.items():
-                for block in rdata.get('block', []):
-                    p = block.get('price_breakdown', {}).get('gross_price')
-                    if p is not None and (price is None or p < price):
-                        price = p
+            price = item.get('min_total_price')
+
+        # Try rooms blocks
+        if price is None:
+            rooms = item.get('rooms', {})
+            if isinstance(rooms, dict):
+                for rid, rdata in rooms.items():
+                    if isinstance(rdata, dict):
+                        for block in rdata.get('block', []):
+                            p = block.get('price_breakdown', {}).get('gross_price')
+                            if p is not None and (price is None or float(p) < float(price)):
+                                price = p
+
         if price is not None:
-            return '$' + str(int(round(float(price))))
+            result = '$' + str(int(round(float(price))))
+            print('  price: ' + result)
+            return result
+
+        print('  no price found in response')
         return 'N/A'
+
     except Exception as e:
         print('  error: ' + str(e))
         return 'N/A'
@@ -236,12 +262,9 @@ def main():
             print('Fetching: ' + hotel['display'])
             rate = fetch_rate(hotel['id'], date)
             rates[hotel['id']] = rate
-            print('  Result: ' + rate)
             time.sleep(1)
         all_rates[date] = rates
-    print('Events...')
     events = get_events()
-    print('Building email...')
     html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
