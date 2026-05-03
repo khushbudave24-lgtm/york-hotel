@@ -15,31 +15,21 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
-YORK_HOTELS = {
-    'ramada': {'keywords': ['ramada'], 'display': 'Ramada by Wyndham York'},
-    'inn_york': {'keywords': ['inn at york'], 'display': 'Inn at York'},
-    'motel6north': {'keywords': ['motel 6', 'north'], 'display': 'Motel 6 North York PA'},
-    'motel6': {'keywords': ['motel 6'], 'display': 'Motel 6 York PA'},
-    'redroof': {'keywords': ['red roof'], 'display': 'Red Roof Inn York'},
-    'daysinn': {'keywords': ['days inn'], 'display': 'Days Inn York'},
-    'qualityinn': {'keywords': ['quality inn'], 'display': 'Quality Inn York East'},
-}
+# Hotel IDs confirmed from your RapidAPI playground test
+# Ramada hotel_id: 342291 returned $70.55
+# Inn at York hotel_id: 290380 returned $79.19
+# Motel 6 hotel_id: 375049
+HOTELS = [
+    {'id': '342291',  'display': 'Ramada by Wyndham York'},
+    {'id': '290380',  'display': 'Inn at York'},
+    {'id': '375049',  'display': 'Motel 6 York PA'},
+    {'id': '491289',  'display': 'Motel 6 North York PA'},
+    {'id': '344413',  'display': 'Red Roof Inn York'},
+    {'id': '311652',  'display': 'Days Inn York'},
+    {'id': '291498',  'display': 'Quality Inn York East'},
+]
 
-HOTEL_DISPLAY_ORDER = ['ramada', 'inn_york', 'motel6north', 'motel6', 'redroof', 'daysinn', 'qualityinn']
-
-# York PA center: 39.9623, -76.7277
-# Going very wide — 1.0 degree radius in all directions (~70 miles)
-YORK_BBOX = '38.9623,40.9623,-77.7277,-75.7277'
-
-
-def match_hotel(hotel_name):
-    name_lower = hotel_name.lower()
-    if 'motel 6' in name_lower and 'north' in name_lower:
-        return 'motel6north'
-    for key in ['ramada', 'inn_york', 'motel6', 'redroof', 'daysinn', 'qualityinn']:
-        if all(kw in name_lower for kw in YORK_HOTELS[key]['keywords']):
-            return key
-    return None
+HOTEL_KEYS = [h['id'] for h in HOTELS]
 
 
 def get_events():
@@ -78,62 +68,51 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def get_price(item):
-    price = None
-    cpb = item.get('composite_price_breakdown', {})
-    if cpb:
-        gross = cpb.get('gross_amount_per_night', {})
-        if gross:
-            price = gross.get('value')
-    if price is None:
-        price = item.get('min_total_price')
-    return price
-
-
-def fetch_rates_for_date(checkin):
+def fetch_rate(hotel_id, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    rates = {}
     headers = {
         'X-RapidAPI-Key': RAPIDAPI_KEY,
         'X-RapidAPI-Host': API_HOST
     }
-    url = 'https://' + API_HOST + '/properties/list-by-map'
+    url = 'https://' + API_HOST + '/properties/detail'
     params = {
-        'search_id': 'none',
-        'children_age': '5,0',
-        'price_filter_currencycode': 'USD',
-        'languagecode': 'en-us',
-        'travel_purpose': 'leisure',
-        'children_qty': '0',
-        'order_by': 'popularity',
-        'guest_qty': '2',
-        'room_qty': '1',
+        'hotel_id': hotel_id,
         'arrival_date': checkin,
         'departure_date': checkout,
-        'bbox': YORK_BBOX,
+        'adults': '2',
+        'room_qty': '1',
+        'units': 'metric',
+        'temperature_unit': 'c',
+        'languagecode': 'en-us',
+        'currency_code': 'USD',
     }
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=20)
+        response = requests.get(url, headers=headers, params=params, timeout=15)
+        print('  detail status: ' + str(response.status_code))
         data = response.json()
-        result_list = data.get('result', []) if isinstance(data, dict) else []
-        print('Total results: ' + str(len(result_list)))
-        for item in result_list:
-            if not isinstance(item, dict):
-                continue
-            hotel_name = item.get('hotel_name', '')
-            city = item.get('city', '')
-            price = get_price(item)
-            matched_key = match_hotel(hotel_name)
-            if matched_key and matched_key not in rates:
-                if price is not None:
-                    rates[matched_key] = '$' + str(int(round(float(price))))
-                    print('MATCHED: ' + hotel_name + ' city:' + city + ' = ' + rates[matched_key])
-            else:
-                if price is not None and hotel_name:
-                    print('Unmatched: ' + hotel_name + ' city:' + city + ' $' + str(int(round(float(price)))))
+        raw = json.dumps(data)
+        print('  preview: ' + raw[:200])
+        price = None
+        pb = data.get('product_price_breakdown', {})
+        if pb:
+            gross = pb.get('gross_amount_per_night', {})
+            if gross:
+                price = gross.get('value')
+        if price is None:
+            price = data.get('min_total_price')
+        if price is None:
+            rooms = data.get('rooms', {})
+            for rid, rdata in rooms.items():
+                for block in rdata.get('block', []):
+                    p = block.get('price_breakdown', {}).get('gross_price')
+                    if p is not None and (price is None or p < price):
+                        price = p
+        if price is not None:
+            return '$' + str(int(round(float(price))))
+        return 'N/A'
     except Exception as e:
-        print('Error: ' + str(e))
-    return rates
+        print('  error: ' + str(e))
+        return 'N/A'
 
 
 def rate_color(rate_str):
@@ -155,26 +134,25 @@ def fmt_date(d):
     return dt.strftime('%A, %B ') + str(dt.day) + ', ' + str(dt.year)
 
 
-def get_lowest(rates_for_date):
-    vals = [int(rates_for_date[k].replace('$', '')) for k in HOTEL_DISPLAY_ORDER if rates_for_date.get(k, 'N/A') != 'N/A']
+def get_lowest(rates):
+    vals = [int(rates[h['id']].replace('$', '')) for h in HOTELS if rates.get(h['id'], 'N/A') != 'N/A']
     return '$' + str(min(vals)) if vals else 'N/A'
 
 
-def get_highest(rates_for_date):
-    vals = [int(rates_for_date[k].replace('$', '')) for k in HOTEL_DISPLAY_ORDER if rates_for_date.get(k, 'N/A') != 'N/A']
+def get_highest(rates):
+    vals = [int(rates[h['id']].replace('$', '')) for h in HOTELS if rates.get(h['id'], 'N/A') != 'N/A']
     return '$' + str(max(vals)) if vals else 'N/A'
 
 
-def build_rows(rates_for_date, numbered):
+def build_rows(rates, numbered):
     rows = ''
-    for i, key in enumerate(HOTEL_DISPLAY_ORDER):
-        rate = rates_for_date.get(key, 'N/A')
+    for i, hotel in enumerate(HOTELS):
+        rate = rates.get(hotel['id'], 'N/A')
         color = rate_color(rate)
-        name = YORK_HOTELS[key]['display']
         rows += '<tr>'
         if numbered:
             rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
-        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + name + '</td>'
+        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['display'] + '</td>'
         rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:18px;font-weight:700;color:' + color + ';>' + rate + '</td>'
         rows += '</tr>'
     return rows
@@ -249,19 +227,21 @@ def main():
     print('York PA Hotel Rate Monitor starting...')
     dates = get_dates()
     today_str, friday_str, saturday_str = dates
-    print('Fetching rates for: ' + today_str + ', ' + friday_str + ', ' + saturday_str)
+    print('Dates: ' + today_str + ' ' + friday_str + ' ' + saturday_str)
     all_rates = {}
     for date in [today_str, friday_str, saturday_str]:
         print('--- ' + date + ' ---')
-        rates = fetch_rates_for_date(date)
+        rates = {}
+        for hotel in HOTELS:
+            print('Fetching: ' + hotel['display'])
+            rate = fetch_rate(hotel['id'], date)
+            rates[hotel['id']] = rate
+            print('  Result: ' + rate)
+            time.sleep(1)
         all_rates[date] = rates
-        for key in HOTEL_DISPLAY_ORDER:
-            print('  ' + YORK_HOTELS[key]['display'] + ': ' + rates.get(key, 'N/A'))
-        time.sleep(2)
-    print('Checking York PA events...')
+    print('Events...')
     events = get_events()
-    print('Found ' + str(len(events)) + ' events this month')
-    print('Building and sending email...')
+    print('Building email...')
     html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
