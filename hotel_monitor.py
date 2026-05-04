@@ -3,6 +3,7 @@ import smtplib
 import os
 import json
 import time
+import re
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
@@ -13,16 +14,15 @@ SENDER_EMAIL = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
-API_HOST = 'apidojo-booking-v1.p.rapidapi.com'
 
 HOTELS = [
-    {'id': '342291', 'display': 'Ramada by Wyndham York'},
-    {'id': '290380', 'display': 'Inn at York'},
-    {'id': '375049', 'display': 'Motel 6 York PA'},
-    {'id': '491289', 'display': 'Motel 6 North York PA'},
-    {'id': '344413', 'display': 'Red Roof Inn York'},
-    {'id': '311652', 'display': 'Days Inn York'},
-    {'id': '291498', 'display': 'Quality Inn York East'},
+    {'name': 'Ramada by Wyndham York PA',        'search': 'Ramada by Wyndham York Pennsylvania'},
+    {'name': 'Inn at York PA',                    'search': 'Inn at York PA hotel'},
+    {'name': 'Motel 6 York PA',                   'search': 'Motel 6 York PA 17402'},
+    {'name': 'Motel 6 North York PA',             'search': 'Motel 6 North York Pennsylvania'},
+    {'name': 'Red Roof Inn York PA',              'search': 'Red Roof Inn York Pennsylvania'},
+    {'name': 'Days Inn York PA',                  'search': 'Days Inn York Pennsylvania'},
+    {'name': 'Quality Inn Suites York East PA',   'search': 'Quality Inn Suites York East Pennsylvania'},
 ]
 
 
@@ -62,103 +62,71 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def fetch_rate(hotel_id, checkin):
+def fetch_rate_google(hotel_search, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    headers = {
-        'X-RapidAPI-Key': RAPIDAPI_KEY,
-        'X-RapidAPI-Host': API_HOST
+    checkin_fmt = datetime.strptime(checkin, '%Y-%m-%d').strftime('%Y-%m-%d')
+    checkout_fmt = datetime.strptime(checkout, '%Y-%m-%d').strftime('%Y-%m-%d')
+
+    # Use RapidAPI Google Hotels search
+    url = 'https://serpapi.com/search.json'
+    params = {
+        'engine': 'google_hotels',
+        'q': hotel_search,
+        'check_in_date': checkin_fmt,
+        'check_out_date': checkout_fmt,
+        'adults': '2',
+        'currency': 'USD',
+        'gl': 'us',
+        'hl': 'en',
+        'api_key': os.environ.get('SERPAPI_KEY', ''),
     }
 
-    # Use properties/v2/get-rooms which returns pricing blocks
-    url = 'https://' + API_HOST + '/properties/v2/get-rooms'
+    try:
+        response = requests.get(url, params=params, timeout=15)
+        data = response.json()
+        properties = data.get('properties', [])
+        if properties:
+            first = properties[0]
+            rate_per_night = first.get('rate_per_night', {})
+            price = rate_per_night.get('lowest') or rate_per_night.get('before_taxes_fees')
+            if price:
+                price_clean = re.sub(r'[^\d]', '', str(price))
+                if price_clean:
+                    return '$' + price_clean
+        return 'N/A'
+    except Exception as e:
+        print('  serpapi error: ' + str(e))
+        return 'N/A'
+
+
+def fetch_rate_rapidapi_hotels(hotel_search, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    url = 'https://hotels4.p.rapidapi.com/locations/v3/search'
+    headers = {
+        'X-RapidAPI-Key': RAPIDAPI_KEY,
+        'X-RapidAPI-Host': 'hotels4.p.rapidapi.com'
+    }
     params = {
-        'hotel_id': hotel_id,
-        'arrival_date': checkin,
-        'departure_date': checkout,
-        'adults': '2',
-        'room_qty': '1',
-        'units': 'metric',
-        'temperature_unit': 'c',
-        'languagecode': 'en-us',
-        'currency_code': 'USD',
+        'q': hotel_search,
+        'locale': 'en_US',
+        'langid': '1033',
+        'siteid': '300000001',
     }
     try:
         response = requests.get(url, headers=headers, params=params, timeout=15)
-        print('  status: ' + str(response.status_code))
+        print('  hotels4 search status: ' + str(response.status_code))
         data = response.json()
         raw = json.dumps(data)
-        print('  preview: ' + raw[:300])
-
-        price = None
-
-        # Handle list response
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            items = data.get('data', [data])
-            if not isinstance(items, list):
-                items = [data]
-        else:
-            items = []
-
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            # Check block array
-            for block in item.get('block', []):
-                if not isinstance(block, dict):
-                    continue
-                pb = block.get('price_breakdown', {})
-                if isinstance(pb, dict):
-                    p = pb.get('gross_price') or pb.get('all_inclusive_price') or pb.get('net_price')
-                    if p is not None:
-                        try:
-                            fp = float(p)
-                            if price is None or fp < price:
-                                price = fp
-                        except Exception:
-                            pass
-            # Check rooms dict
-            rooms = item.get('rooms', {})
-            if isinstance(rooms, dict):
-                for rid, rdata in rooms.items():
-                    if isinstance(rdata, dict):
-                        for block in rdata.get('block', []):
-                            if isinstance(block, dict):
-                                pb = block.get('price_breakdown', {})
-                                if isinstance(pb, dict):
-                                    p = pb.get('gross_price') or pb.get('all_inclusive_price')
-                                    if p is not None:
-                                        try:
-                                            fp = float(p)
-                                            if price is None or fp < price:
-                                                price = fp
-                                        except Exception:
-                                            pass
-            # Check composite_price_breakdown
-            cpb = item.get('composite_price_breakdown', {})
-            if isinstance(cpb, dict):
-                for key in ['gross_amount_per_night', 'gross_amount', 'all_inclusive_amount']:
-                    val = cpb.get(key, {})
-                    if isinstance(val, dict) and val.get('value'):
-                        try:
-                            fp = float(val['value'])
-                            if price is None or fp < price:
-                                price = fp
-                        except Exception:
-                            pass
-
-        if price is not None and price > 0:
-            result = '$' + str(int(round(price)))
-            print('  price: ' + result)
-            return result
-
-        print('  no price found')
+        print('  preview: ' + raw[:200])
         return 'N/A'
-
     except Exception as e:
-        print('  error: ' + str(e))
+        print('  hotels4 error: ' + str(e))
         return 'N/A'
+
+
+def fetch_rate(hotel_search, checkin):
+    # Try Hotels4 RapidAPI (Expedia powered - free tier)
+    return fetch_rate_rapidapi_hotels(hotel_search, checkin)
 
 
 def rate_color(rate_str):
@@ -181,24 +149,24 @@ def fmt_date(d):
 
 
 def get_lowest(rates):
-    vals = [int(rates[h['id']].replace('$', '')) for h in HOTELS if rates.get(h['id'], 'N/A') != 'N/A']
+    vals = [int(rates[h['name']].replace('$', '')) for h in HOTELS if rates.get(h['name'], 'N/A') != 'N/A']
     return '$' + str(min(vals)) if vals else 'N/A'
 
 
 def get_highest(rates):
-    vals = [int(rates[h['id']].replace('$', '')) for h in HOTELS if rates.get(h['id'], 'N/A') != 'N/A']
+    vals = [int(rates[h['name']].replace('$', '')) for h in HOTELS if rates.get(h['name'], 'N/A') != 'N/A']
     return '$' + str(max(vals)) if vals else 'N/A'
 
 
 def build_rows(rates, numbered):
     rows = ''
     for i, hotel in enumerate(HOTELS):
-        rate = rates.get(hotel['id'], 'N/A')
+        rate = rates.get(hotel['name'], 'N/A')
         color = rate_color(rate)
         rows += '<tr>'
         if numbered:
             rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
-        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['display'] + '</td>'
+        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['name'] + '</td>'
         rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:18px;font-weight:700;color:' + color + ';>' + rate + '</td>'
         rows += '</tr>'
     return rows
@@ -232,7 +200,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Today + Weekend</span>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
-    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live from Booking.com</span></div>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live Rates</span></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
@@ -279,9 +247,10 @@ def main():
         print('--- ' + date + ' ---')
         rates = {}
         for hotel in HOTELS:
-            print('Fetching: ' + hotel['display'])
-            rate = fetch_rate(hotel['id'], date)
-            rates[hotel['id']] = rate
+            print('Fetching: ' + hotel['name'])
+            rate = fetch_rate(hotel['search'], date)
+            rates[hotel['name']] = rate
+            print('  rate: ' + rate)
             time.sleep(1)
         all_rates[date] = rates
     events = get_events()
