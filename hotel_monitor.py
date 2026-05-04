@@ -288,3 +288,7 @@ def main():
     html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
+
+
+if __name__ == '__main__':
+    main()
