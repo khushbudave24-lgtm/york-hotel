@@ -1,29 +1,30 @@
 import smtplib
 import os
 import time
-import re
 import json
 import urllib.request
 import urllib.parse
-import gzip
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 import pytz
 
+RAPIDAPI_KEY    = os.environ.get('RAPIDAPI_KEY', '')
 SENDER_EMAIL    = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE        = 'America/New_York'
+API_HOST        = 'apidojo-booking-v1.p.rapidapi.com'
 
+# Hotel IDs confirmed working - city: York (Pennsylvania) verified in logs
 HOTELS = [
-    {'name': 'Ramada by Wyndham York PA',       'google_q': 'Ramada by Wyndham York Pennsylvania'},
-    {'name': 'Inn at York PA',                   'google_q': 'Inn at York Pennsylvania hotel'},
-    {'name': 'Motel 6 York PA',                  'google_q': 'Motel 6 York PA South George Street'},
-    {'name': 'Motel 6 North York PA',            'google_q': 'Motel 6 North York Pennsylvania'},
-    {'name': 'Red Roof Inn York PA',             'google_q': 'Red Roof Inn York Pennsylvania'},
-    {'name': 'Days Inn York PA',                 'google_q': 'Days Inn York Pennsylvania'},
-    {'name': 'Quality Inn Suites York East PA',  'google_q': 'Quality Inn Suites York East Pennsylvania'},
+    {'name': 'Ramada by Wyndham York',      'id': '342291'},
+    {'name': 'Inn at York',                  'id': '290380'},
+    {'name': 'Motel 6 York PA',              'id': '375049'},
+    {'name': 'Motel 6 North York PA',        'id': '491289'},
+    {'name': 'Red Roof Inn York',            'id': '344413'},
+    {'name': 'Days Inn York',                'id': '311652'},
+    {'name': 'Quality Inn York East',        'id': '291498'},
 ]
 
 YORK_EVENTS = [
@@ -60,209 +61,91 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def fetch_html(url, headers=None):
-    h = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-    }
-    if headers:
-        h.update(headers)
-    req = urllib.request.Request(url, headers=h)
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        raw = resp.read()
-        try:
-            return gzip.decompress(raw).decode('utf-8', errors='ignore')
-        except Exception:
-            return raw.decode('utf-8', errors='ignore')
+def api_get(path, params):
+    url = 'https://' + API_HOST + path + '?' + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={
+        'X-RapidAPI-Key':  RAPIDAPI_KEY,
+        'X-RapidAPI-Host': API_HOST,
+    })
+    with urllib.request.urlopen(req, timeout=20) as resp:
+        return json.loads(resp.read().decode('utf-8'))
 
 
-def fetch_price_google(hotel_q, checkin):
+def deep_find_prices(obj, depth=0):
+    prices = []
+    if depth > 8:
+        return prices
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            kl = k.lower()
+            if any(p in kl for p in ['price', 'rate', 'amount', 'cost', 'total']):
+                if isinstance(v, (int, float)) and 30 < v < 600:
+                    prices.append(float(v))
+                elif isinstance(v, str):
+                    try:
+                        f = float(v.replace('$','').replace(',',''))
+                        if 30 < f < 600:
+                            prices.append(f)
+                    except Exception:
+                        pass
+                elif isinstance(v, dict):
+                    for vk, vv in v.items():
+                        if isinstance(vv, (int, float)) and 30 < vv < 600:
+                            prices.append(float(vv))
+            prices.extend(deep_find_prices(v, depth + 1))
+    elif isinstance(obj, list):
+        for item in obj:
+            prices.extend(deep_find_prices(item, depth + 1))
+    return prices
+
+
+def fetch_rate(hotel_id, hotel_name, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    # Google search for hotel price - returns structured data with real prices
-    query = hotel_q + ' hotel price ' + checkin
-    encoded = urllib.parse.quote(query)
-    url = 'https://www.google.com/search?q=' + encoded + '&num=5'
+
+    # Method 1: v2/get-rooms
     try:
-        html = fetch_html(url, {
-            'Accept': 'text/html,application/xhtml+xml',
-            'Referer': 'https://www.google.com/',
+        data = api_get('/properties/v2/get-rooms', {
+            'hotel_id':      hotel_id,
+            'arrival_date':  checkin,
+            'departure_date': checkout,
+            'adults':        '2',
+            'room_qty':      '1',
+            'units':         'metric',
+            'languagecode':  'en-us',
+            'currency_code': 'USD',
         })
-        # Google shows prices like "$89 per night" or "From $89" in hotel panels
-        # Look for price patterns near the hotel name
-        hotel_word = hotel_q.lower().split()[0]
-        idx = html.lower().find(hotel_word)
-        search_area = html[max(0, idx-500):idx+3000] if idx > 0 else html[:8000]
-
-        # Pattern 1: "From $XX" or "$XX per night" - most reliable
-        patterns = [
-            r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
-            r'\$\s*(\d{2,3})(?!\d)\s*(?:per\s*night|/\s*night|a\s*night)',
-            r'(?:price|rate|cost)\D{0,20}\$\s*(\d{2,3})(?!\d)',
-        ]
-        for pat in patterns:
-            matches = re.findall(pat, search_area)
-            valid = [int(m) for m in matches if 40 <= int(m) <= 500]
-            if valid:
-                return '$' + str(min(valid))
-
-        # Pattern 2: any dollar amount in a reasonable hotel price range
-        # but EXCLUDE $50 which is a common placeholder
-        all_prices = re.findall(r'\$\s*(\d{2,3})(?!\d)', search_area)
-        valid = [int(p) for p in all_prices if 55 <= int(p) <= 400 and int(p) != 50]
-        if valid:
-            from collections import Counter
-            counts = Counter(valid)
-            # Return most common reasonable price (not outliers)
-            return '$' + str(counts.most_common(1)[0][0])
-
+        prices = deep_find_prices(data)
+        if prices:
+            best = min(p for p in prices if p > 30)
+            print('    rooms: $' + str(int(round(best))))
+            return '$' + str(int(round(best)))
     except Exception as e:
-        print('    google error: ' + str(e)[:60])
-    return None
+        print('    rooms error: ' + str(e)[:60])
 
-
-def fetch_price_bing(hotel_q, checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    checkin_fmt = datetime.strptime(checkin, '%Y-%m-%d').strftime('%b %d %Y')
-    query = hotel_q + ' rooms rates ' + checkin_fmt
-    encoded = urllib.parse.quote(query)
-    url = 'https://www.bing.com/search?q=' + encoded + '&count=5'
-    try:
-        html = fetch_html(url)
-        hotel_word = hotel_q.lower().split()[0]
-        idx = html.lower().find(hotel_word)
-        search_area = html[max(0, idx-300):idx+2000] if idx > 0 else html[:6000]
-
-        patterns = [
-            r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
-            r'\$\s*(\d{2,3})(?!\d)\s*(?:per\s*night|/night)',
-            r'\$\s*(\d{2,3})(?!\d)',
-        ]
-        for pat in patterns:
-            matches = re.findall(pat, search_area)
-            valid = [int(m) for m in matches if 55 <= int(m) <= 400 and int(m) != 50]
-            if valid:
-                return '$' + str(min(valid))
-    except Exception as e:
-        print('    bing error: ' + str(e)[:60])
-    return None
-
-
-def fetch_price_wyndham(hotel_name, checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    slug_map = {
-        'Ramada by Wyndham York PA': 'ramada/york-pennsylvania/ramada-york',
-        'Days Inn York PA': 'days-inn/york-pennsylvania/days-inn-york',
-    }
-    slug = slug_map.get(hotel_name)
-    if not slug:
-        return None
-    url = 'https://www.wyndhamhotels.com/' + slug + '/rooms-rates?checkInDate=' + checkin + '&checkOutDate=' + checkout + '&adults=2&rooms=1'
-    try:
-        html = fetch_html(url)
-        # Look for JSON price embedded in page
-        prices_json = re.findall(r'"price"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)', html)
-        if prices_json:
-            valid = [int(float(p)) for p in prices_json if 40 <= int(float(p)) <= 500]
-            if valid:
-                return '$' + str(min(valid))
-        # Look for price in text
-        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg)', html, re.IGNORECASE)
-        valid = [int(m) for m in matches if 40 <= int(m) <= 500]
-        if valid:
-            return '$' + str(min(valid))
-    except Exception as e:
-        print('    wyndham error: ' + str(e)[:60])
-    return None
-
-
-def fetch_price_motel6(hotel_name, checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    prop_map = {
-        'Motel 6 York PA': '4730',
-        'Motel 6 North York PA': '1028',
-    }
-    prop_id = prop_map.get(hotel_name)
-    if not prop_id:
-        return None
-    url = 'https://www.motel6.com/en/home/motels.pa.york.' + prop_id + '.html?checkin=' + checkin + '&checkout=' + checkout + '&rooms=1&adults=2'
-    try:
-        html = fetch_html(url)
-        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg|USD)', html, re.IGNORECASE)
-        if not matches:
-            matches = re.findall(r'"lowestRate"\s*:\s*"?\$?([\d.]+)', html)
-        valid = [int(float(m)) for m in matches if 40 <= int(float(m)) <= 300]
-        if valid:
-            return '$' + str(min(valid))
-    except Exception as e:
-        print('    motel6 error: ' + str(e)[:60])
-    return None
-
-
-def fetch_price_redroof(checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    url = 'https://www.redroof.com/property/pa/york/RRI014/?arrivalDate=' + checkin + '&departureDate=' + checkout + '&numAdults=2&numRooms=1'
-    try:
-        html = fetch_html(url)
-        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg|night)', html, re.IGNORECASE)
-        if not matches:
-            matches = re.findall(r'"totalRate"\s*:\s*"?([\d.]+)', html)
-        valid = [int(float(m)) for m in matches if 40 <= int(float(m)) <= 300]
-        if valid:
-            return '$' + str(min(valid))
-    except Exception as e:
-        print('    redroof error: ' + str(e)[:60])
-    return None
-
-
-def fetch_price_choice(checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    url = 'https://www.choicehotels.com/pennsylvania/york/quality-inn-hotels/pa423/rates?checkInDate=' + checkin + '&checkOutDate=' + checkout + '&adults=2&rooms=1'
-    try:
-        html = fetch_html(url)
-        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg)', html, re.IGNORECASE)
-        if not matches:
-            matches = re.findall(r'"totalPrice"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)', html)
-        valid = [int(float(m)) for m in matches if 40 <= int(float(m)) <= 400]
-        if valid:
-            return '$' + str(min(valid))
-    except Exception as e:
-        print('    choice error: ' + str(e)[:60])
-    return None
-
-
-def fetch_rate(hotel, checkin):
-    name = hotel['name']
-    price = None
-
-    # 1. Try brand website first (most accurate)
-    if 'Ramada' in name or 'Days Inn' in name:
-        price = fetch_price_wyndham(name, checkin)
-    elif 'Motel 6' in name:
-        price = fetch_price_motel6(name, checkin)
-    elif 'Red Roof' in name:
-        price = fetch_price_redroof(checkin)
-    elif 'Quality Inn' in name:
-        price = fetch_price_choice(checkin)
-
-    if price:
-        print('    brand: ' + price)
-        return price
     time.sleep(1)
 
-    # 2. Try Google search (real price shown in search results)
-    price = fetch_price_google(hotel['google_q'], checkin)
-    if price:
-        print('    google: ' + price)
-        return price
-    time.sleep(1)
-
-    # 3. Try Bing search
-    price = fetch_price_bing(hotel['google_q'], checkin)
-    if price:
-        print('    bing: ' + price)
-        return price
+    # Method 2: detail endpoint
+    try:
+        data = api_get('/properties/detail', {
+            'hotel_id':        hotel_id,
+            'arrival_date':    checkin,
+            'departure_date':  checkout,
+            'adults':          '2',
+            'room_qty':        '1',
+            'currency_code':   'USD',
+            'languagecode':    'en-us',
+            'units':           'metric',
+            'temperature_unit':'c',
+        })
+        item = data[0] if isinstance(data, list) and data else data if isinstance(data, dict) else None
+        if item:
+            prices = deep_find_prices(item)
+            if prices:
+                best = min(p for p in prices if p > 30)
+                print('    detail: $' + str(int(round(best))))
+                return '$' + str(int(round(best)))
+    except Exception as e:
+        print('    detail error: ' + str(e)[:60])
 
     return 'N/A'
 
@@ -270,11 +153,11 @@ def fetch_rate(hotel, checkin):
 def fetch_rates_for_date(checkin):
     rates = {}
     for hotel in HOTELS:
-        print('  ' + hotel['name'] + ':')
-        rate = fetch_rate(hotel, checkin)
+        print('  ' + hotel['name'])
+        rate = fetch_rate(hotel['id'], hotel['name'], checkin)
         rates[hotel['name']] = rate
         print('  => ' + rate)
-        time.sleep(2)
+        time.sleep(1)
     return rates
 
 
@@ -298,23 +181,23 @@ def fmt_date(d):
 
 
 def get_lowest(rates):
-    vals = [int(rates[h['name']].replace('$', '')) for h in HOTELS if rates.get(h['name'], 'N/A') != 'N/A']
+    vals = [int(rates[h['name']].replace('$','')) for h in HOTELS if rates.get(h['name'],'N/A') != 'N/A']
     return '$' + str(min(vals)) if vals else 'N/A'
 
 
 def get_highest(rates):
-    vals = [int(rates[h['name']].replace('$', '')) for h in HOTELS if rates.get(h['name'], 'N/A') != 'N/A']
+    vals = [int(rates[h['name']].replace('$','')) for h in HOTELS if rates.get(h['name'],'N/A') != 'N/A']
     return '$' + str(max(vals)) if vals else 'N/A'
 
 
 def build_rows(rates, numbered):
     rows = ''
     for i, hotel in enumerate(HOTELS):
-        rate = rates.get(hotel['name'], 'N/A')
+        rate  = rates.get(hotel['name'], 'N/A')
         color = rate_color(rate)
         rows += '<tr>'
         if numbered:
-            rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
+            rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i+1) + '.</td>'
         rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['name'] + '</td>'
         rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:18px;font-weight:700;color:' + color + ';>' + rate + '</td>'
         rows += '</tr>'
@@ -323,22 +206,22 @@ def build_rows(rates, numbered):
 
 def build_email(all_rates, dates, events):
     today_str, friday_str, saturday_str = dates
-    et = pytz.timezone(TIMEZONE)
+    et  = pytz.timezone(TIMEZONE)
     now = datetime.now(et)
-    send_time = now.strftime('%B ') + str(now.day) + ', ' + str(now.year) + ' at 7:00 AM ET'
+    send_time      = now.strftime('%B ') + str(now.day) + ', ' + str(now.year) + ' at 7:00 AM ET'
     today_rates    = all_rates.get(today_str, {})
     friday_rates   = all_rates.get(friday_str, {})
     saturday_rates = all_rates.get(saturday_str, {})
-    today_rows    = build_rows(today_rates, True)
-    friday_rows   = build_rows(friday_rates, False)
-    saturday_rows = build_rows(saturday_rates, False)
+    today_rows     = build_rows(today_rates, True)
+    friday_rows    = build_rows(friday_rates, False)
+    saturday_rows  = build_rows(saturday_rates, False)
     lowest_tonight  = get_lowest(today_rates)
     highest_tonight = get_highest(today_rates)
     event_rows = ''
     if events:
         for ev in events:
             imp = ev.get('impact', 'LOW')
-            c = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
+            c   = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
             event_rows += '<tr><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;>'
             event_rows += '<span style=font-size:13px;font-weight:600;color:#1b2e1b;>' + ev['name'] + '</span><br>'
             event_rows += '<span style=font-size:11px;color:#999;>' + ev['date'] + ' - ' + ev['venue'] + '</span>'
@@ -355,7 +238,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Today + Weekend</span>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
-    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live Rates</span></div>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live via Booking.com API</span></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
@@ -372,7 +255,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=padding:0 36px;><div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Rate Impact Watch</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table></div>'
     html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;><span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
-    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Rates from hotel brand websites, Google and Bing search<br>Delivered to: khushbudave24@gmail.com</p></div>'
+    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn | Quality Inn East<br>Delivered to: khushbudave24@gmail.com</p></div>'
     html += '</div></body></html>'
     return html
 
@@ -405,7 +288,7 @@ def main():
     for date in [today_str, friday_str, saturday_str]:
         print('--- ' + date + ' ---')
         all_rates[date] = fetch_rates_for_date(date)
-        time.sleep(3)
+        time.sleep(2)
     events = get_events()
     print('Events: ' + str(len(events)))
     html = build_email(all_rates, dates, events)
