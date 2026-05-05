@@ -1,33 +1,51 @@
-import anthropic
 import smtplib
 import os
 import json
 import time
+import re
+import urllib.request
+import urllib.parse
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 import pytz
 
-ANTHROPIC_API_KEY = os.environ.get('ANTHROPIC_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE = 'America/New_York'
 
 HOTELS = [
-    'Ramada by Wyndham York PA',
-    'Inn at York PA',
-    'Motel 6 York PA',
-    'Motel 6 North York PA',
-    'Red Roof Inn York PA',
-    'Days Inn York PA',
-    'Quality Inn and Suites York East PA',
+    {'name': 'Ramada by Wyndham York PA',      'search': 'Ramada by Wyndham York PA hotel price'},
+    {'name': 'Inn at York PA',                  'search': 'Inn at York PA hotel price'},
+    {'name': 'Motel 6 York PA',                 'search': 'Motel 6 York PA 17403 hotel price'},
+    {'name': 'Motel 6 North York PA',           'search': 'Motel 6 North York PA hotel price'},
+    {'name': 'Red Roof Inn York PA',            'search': 'Red Roof Inn York PA hotel price'},
+    {'name': 'Days Inn York PA',                'search': 'Days Inn York PA hotel price'},
+    {'name': 'Quality Inn Suites York East PA', 'search': 'Quality Inn Suites York East PA hotel price'},
 ]
 
-EVENTS_PROMPT = '''Search for upcoming events in York Pennsylvania in the next 30 days that would cause hotel rate increases.
-Return a JSON array only, no other text, like this:
-[{"name": "Event Name", "date": "Date range", "venue": "Venue name", "impact": "HIGH or MODERATE or LOW"}]
-If no events found return an empty array [].'''
+YORK_EVENTS = [
+    {'month': 2,  'name': 'Home and Garden Show',             'date': 'Feb 6-8',       'venue': 'York Expo Center',   'impact': 'HIGH'},
+    {'month': 3,  'name': 'York Saint Patricks Day Parade',   'date': 'Mar 14',        'venue': 'Downtown York',      'impact': 'MODERATE'},
+    {'month': 4,  'name': 'York Train Show',                  'date': 'Apr 20-25',     'venue': 'York Expo Center',   'impact': 'HIGH'},
+    {'month': 5,  'name': 'Give Local York',                  'date': 'Apr 30 - May 1','venue': 'York County',        'impact': 'HIGH'},
+    {'month': 5,  'name': 'York Revolution Baseball Opener',  'date': 'May 2026',      'venue': 'WellSpan Park',      'impact': 'MODERATE'},
+    {'month': 6,  'name': 'York County Pride',                'date': 'Jun 13',        'venue': 'York',               'impact': 'MODERATE'},
+    {'month': 6,  'name': 'Lincoln Highway Conference',       'date': 'Jun 22-26',     'venue': 'York',               'impact': 'HIGH'},
+    {'month': 7,  'name': 'York State Fair',                  'date': 'Jul 24 - Aug 2','venue': 'York Expo Center',   'impact': 'HIGH'},
+    {'month': 7,  'name': 'Mason-Dixon Fair',                 'date': 'Jul 6-11',      'venue': 'York Fairgrounds',   'impact': 'HIGH'},
+    {'month': 8,  'name': 'York State Fair continues',        'date': 'Through Aug 2', 'venue': 'York Expo Center',   'impact': 'HIGH'},
+    {'month': 9,  'name': 'Wild and Uncommon Weekend',        'date': 'Sep 17-20',     'venue': 'Horn Farm Center',   'impact': 'MODERATE'},
+    {'month': 10, 'name': 'Pennsylvania Renaissance Faire',   'date': 'Through Oct 25','venue': 'Mount Hope Estate',  'impact': 'MODERATE'},
+    {'month': 12, 'name': 'Christmas Magic Festival',         'date': 'Dec seasonal',  'venue': 'York County',        'impact': 'MODERATE'},
+]
+
+
+def get_events():
+    et = pytz.timezone(TIMEZONE)
+    month = datetime.now(et).month
+    return [e for e in YORK_EVENTS if e['month'] == month]
 
 
 def get_dates():
@@ -41,97 +59,139 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def fetch_rates_with_claude(date_str):
-    et = pytz.timezone(TIMEZONE)
-    date_display = datetime.strptime(date_str, '%Y-%m-%d').strftime('%B %d, %Y')
+def scrape_price(hotel_name, checkin):
+    checkin_dt = datetime.strptime(checkin, '%Y-%m-%d')
+    checkout_dt = checkin_dt + timedelta(days=1)
+    checkin_str = checkin_dt.strftime('%Y-%m-%d')
+    checkout_str = checkout_dt.strftime('%Y-%m-%d')
 
-    prompt = '''Search the web for hotel room rates for the following hotels in York Pennsylvania for ''' + date_display + '''.
-For each hotel find the lowest available room rate in USD from the hotel official website, Expedia, Hotels.com, or Google Hotels.
+    # Search Expedia for the hotel rate
+    query = hotel_name + ' York Pennsylvania ' + checkin_str
+    encoded_query = urllib.parse.quote(query)
+    url = 'https://www.expedia.com/Hotel-Search?destination=' + urllib.parse.quote('York, Pennsylvania') + '&startDate=' + checkin_str + '&endDate=' + checkout_str + '&adults=2&rooms=1'
 
-Hotels to search:
-1. Ramada by Wyndham York PA
-2. Inn at York PA
-3. Motel 6 York PA (South George Street)
-4. Motel 6 North York PA (North George Street)
-5. Red Roof Inn York PA
-6. Days Inn York PA
-7. Quality Inn and Suites York East PA
-
-Return ONLY a valid JSON object, no other text, in this exact format:
-{
-  "Ramada by Wyndham York PA": "$XX",
-  "Inn at York PA": "$XX",
-  "Motel 6 York PA": "$XX",
-  "Motel 6 North York PA": "$XX",
-  "Red Roof Inn York PA": "$XX",
-  "Days Inn York PA": "$XX",
-  "Quality Inn and Suites York East PA": "$XX"
-}
-If a rate is not found use "N/A". Use whole dollar amounts only like "$75".'''
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    }
 
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model='claude-sonnet-4-20250514',
-            max_tokens=1000,
-            tools=[{'type': 'web_search_20250305', 'name': 'web_search'}],
-            messages=[{'role': 'user', 'content': prompt}]
-        )
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=10) as response:
+            html = response.read().decode('utf-8', errors='ignore')
 
-        full_text = ''
-        for block in response.content:
-            if block.type == 'text':
-                full_text += block.text
+        # Look for prices near the hotel name
+        hotel_lower = hotel_name.lower().split()[0]
+        idx = html.lower().find(hotel_lower)
+        if idx > 0:
+            nearby = html[idx:idx+2000]
+            prices = re.findall(r'\$(\d{2,3})', nearby)
+            if prices:
+                valid = [int(p) for p in prices if 30 <= int(p) <= 500]
+                if valid:
+                    return '$' + str(min(valid))
 
-        print('Claude response for ' + date_str + ':')
-        print(full_text[:500])
+        # Fallback: find any reasonable price in page
+        all_prices = re.findall(r'\$(\d{2,3})', html[:50000])
+        valid = [int(p) for p in all_prices if 40 <= int(p) <= 300]
+        if valid:
+            from collections import Counter
+            most_common = Counter(valid).most_common(3)
+            return '$' + str(most_common[0][0])
 
-        start = full_text.find('{')
-        end = full_text.rfind('}') + 1
-        if start >= 0 and end > start:
-            json_str = full_text[start:end]
-            rates = json.loads(json_str)
-            return rates
-        return {}
+        return 'N/A'
 
     except Exception as e:
-        print('Claude error for ' + date_str + ': ' + str(e))
-        return {}
+        print('  scrape error: ' + str(e)[:80])
+        return 'N/A'
 
 
-def fetch_events_with_claude():
+def fetch_rates_for_date(checkin):
+    rates = {}
+    checkin_dt = datetime.strptime(checkin, '%Y-%m-%d')
+    checkout_dt = checkin_dt + timedelta(days=1)
+    checkin_str = checkin_dt.strftime('%Y-%m-%d')
+    checkout_str = checkout_dt.strftime('%Y-%m-%d')
+
+    # Use Hotels.com search page - parse all hotel prices at once
+    url = 'https://www.hotels.com/search.do?q-destination=York%2C+Pennsylvania%2C+United+States&q-check-in=' + checkin_str + '&q-check-out=' + checkout_str + '&q-rooms=1&q-adult-size=2'
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate',
+        'Connection': 'keep-alive',
+    }
+
+    hotel_keywords = {
+        'Ramada by Wyndham York PA':      ['ramada', 'wyndham york'],
+        'Inn at York PA':                  ['inn at york'],
+        'Motel 6 York PA':                 ['motel 6', 'motel6'],
+        'Motel 6 North York PA':           ['motel 6 north', 'north york'],
+        'Red Roof Inn York PA':            ['red roof'],
+        'Days Inn York PA':                ['days inn'],
+        'Quality Inn Suites York East PA': ['quality inn'],
+    }
+
     try:
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-        response = client.messages.create(
-            model='claude-sonnet-4-20250514',
-            max_tokens=1000,
-            tools=[{'type': 'web_search_20250305', 'name': 'web_search'}],
-            messages=[{'role': 'user', 'content': EVENTS_PROMPT}]
-        )
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            raw = resp.read()
+            # handle gzip
+            try:
+                import gzip
+                html = gzip.decompress(raw).decode('utf-8', errors='ignore')
+            except Exception:
+                html = raw.decode('utf-8', errors='ignore')
 
-        full_text = ''
-        for block in response.content:
-            if block.type == 'text':
-                full_text += block.text
+        print('  Hotels.com page size: ' + str(len(html)))
 
-        print('Events response: ' + full_text[:300])
-
-        start = full_text.find('[')
-        end = full_text.rfind(']') + 1
-        if start >= 0 and end > start:
-            return json.loads(full_text[start:end])
-        return []
+        for hotel_name, keywords in hotel_keywords.items():
+            for kw in keywords:
+                idx = html.lower().find(kw)
+                if idx > 0:
+                    chunk = html[max(0, idx-200):idx+1000]
+                    prices = re.findall(r'\$(\d{2,3})', chunk)
+                    valid = [int(p) for p in prices if 35 <= int(p) <= 400]
+                    if valid:
+                        rates[hotel_name] = '$' + str(min(valid))
+                        print('  Found ' + hotel_name + ': $' + str(min(valid)))
+                        break
 
     except Exception as e:
-        print('Events error: ' + str(e))
-        return []
+        print('  Hotels.com error: ' + str(e)[:100])
+
+    # For any hotels not found, try individual Google search via DuckDuckGo
+    for hotel in HOTELS:
+        if hotel['name'] not in rates:
+            try:
+                query = hotel['name'] + ' York PA hotel rate ' + checkin_str + ' per night'
+                encoded = urllib.parse.quote(query)
+                ddg_url = 'https://html.duckduckgo.com/html/?q=' + encoded
+                req2 = urllib.request.Request(ddg_url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'})
+                with urllib.request.urlopen(req2, timeout=10) as resp2:
+                    html2 = resp2.read().decode('utf-8', errors='ignore')
+                prices = re.findall(r'\$(\d{2,3})(?:\s*(?:per night|\/night|night))', html2)
+                if not prices:
+                    prices = re.findall(r'\$(\d{2,3})', html2[:5000])
+                valid = [int(p) for p in prices if 35 <= int(p) <= 400]
+                if valid:
+                    rates[hotel['name']] = '$' + str(min(valid))
+                    print('  DDG found ' + hotel['name'] + ': $' + str(min(valid)))
+                time.sleep(1)
+            except Exception as e:
+                print('  DDG error for ' + hotel['name'] + ': ' + str(e)[:60])
+
+    return rates
 
 
 def rate_color(rate_str):
     if rate_str == 'N/A':
         return '#888888'
     try:
-        val = int(rate_str.replace('$', '').replace(',', ''))
+        val = int(rate_str.replace('$', ''))
         if val >= 100:
             return '#c0392b'
         if val >= 75:
@@ -147,38 +207,24 @@ def fmt_date(d):
 
 
 def get_lowest(rates):
-    vals = []
-    for h in HOTELS:
-        r = rates.get(h, 'N/A')
-        if r != 'N/A':
-            try:
-                vals.append(int(r.replace('$', '').replace(',', '')))
-            except Exception:
-                pass
+    vals = [int(rates[h['name']].replace('$', '')) for h in HOTELS if rates.get(h['name'], 'N/A') != 'N/A']
     return '$' + str(min(vals)) if vals else 'N/A'
 
 
 def get_highest(rates):
-    vals = []
-    for h in HOTELS:
-        r = rates.get(h, 'N/A')
-        if r != 'N/A':
-            try:
-                vals.append(int(r.replace('$', '').replace(',', '')))
-            except Exception:
-                pass
+    vals = [int(rates[h['name']].replace('$', '')) for h in HOTELS if rates.get(h['name'], 'N/A') != 'N/A']
     return '$' + str(max(vals)) if vals else 'N/A'
 
 
 def build_rows(rates, numbered):
     rows = ''
     for i, hotel in enumerate(HOTELS):
-        rate = rates.get(hotel, 'N/A')
+        rate = rates.get(hotel['name'], 'N/A')
         color = rate_color(rate)
         rows += '<tr>'
         if numbered:
             rows += '<td style=padding:12px 8px;border-bottom:1px solid #f0ece3;font-size:13px;color:#555;width:24px;>' + str(i + 1) + '.</td>'
-        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel + '</td>'
+        rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['name'] + '</td>'
         rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:18px;font-weight:700;color:' + color + ';>' + rate + '</td>'
         rows += '</tr>'
     return rows
@@ -204,13 +250,13 @@ def build_email(all_rates, dates, events):
             imp = ev.get('impact', 'LOW')
             imp_color = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
             event_rows += '<tr><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;>'
-            event_rows += '<span style=font-size:13px;font-weight:600;color:#1b2e1b;>' + ev.get('name', '') + '</span><br>'
-            event_rows += '<span style=font-size:11px;color:#999;>' + ev.get('date', '') + ' - ' + ev.get('venue', '') + '</span>'
+            event_rows += '<span style=font-size:13px;font-weight:600;color:#1b2e1b;>' + ev['name'] + '</span><br>'
+            event_rows += '<span style=font-size:11px;color:#999;>' + ev['date'] + ' - ' + ev['venue'] + '</span>'
             event_rows += '</td><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;text-align:right;>'
             event_rows += '<span style=background:' + imp_color + ';color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;>' + imp + '</span>'
             event_rows += '</td></tr>'
     else:
-        event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events detected this month.</td></tr>'
+        event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events this month.</td></tr>'
 
     html = '<!DOCTYPE html><html><head><meta charset=UTF-8></head><body style=margin:0;padding:20px;background:#edeae3;font-family:Arial,sans-serif;>'
     html += '<div style=max-width:640px;margin:0 auto;background:#ffffff;border-radius:3px;overflow:hidden;box-shadow:0 4px 30px rgba(0,0,0,0.12);>'
@@ -220,7 +266,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Today + Weekend</span>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
-    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live Rates via AI Search</span>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live Rates</span>'
     html += '</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
@@ -239,7 +285,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=padding:0 36px;><div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Rate Impact Watch</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table></div>'
     html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;><span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
-    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Rates sourced via AI web search from hotel and travel websites<br>Delivered to: khushbudave24@gmail.com</p></div>'
+    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Rates sourced from Hotels.com and travel websites<br>Delivered to: khushbudave24@gmail.com</p></div>'
     html += '</div></body></html>'
     return html
 
@@ -257,7 +303,7 @@ def send_email(html_content, dates):
         with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
             server.login(SENDER_EMAIL, SENDER_PASSWORD)
             server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
-        print('Email sent successfully to ' + RECIPIENT_EMAIL)
+        print('Email sent to ' + RECIPIENT_EMAIL)
     except Exception as e:
         print('Email failed: ' + str(e))
         raise
@@ -272,17 +318,14 @@ def main():
     all_rates = {}
     for date in [today_str, friday_str, saturday_str]:
         print('Fetching rates for: ' + date)
-        rates = fetch_rates_with_claude(date)
+        rates = fetch_rates_for_date(date)
         all_rates[date] = rates
         for h in HOTELS:
-            print('  ' + h + ': ' + rates.get(h, 'N/A'))
+            print('  ' + h['name'] + ': ' + rates.get(h['name'], 'N/A'))
         time.sleep(3)
 
-    print('Fetching York PA events...')
-    events = fetch_events_with_claude()
-    print('Found ' + str(len(events)) + ' events')
-
-    print('Building and sending email...')
+    events = get_events()
+    print('Events this month: ' + str(len(events)))
     html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
