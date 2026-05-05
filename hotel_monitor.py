@@ -2,9 +2,9 @@ import smtplib
 import os
 import time
 import re
+import json
 import urllib.request
 import urllib.parse
-import urllib.error
 import gzip
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -17,41 +17,13 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE        = 'America/New_York'
 
 HOTELS = [
-    {
-        'name': 'Ramada by Wyndham York PA',
-        'url_template': 'https://www.wyndhamhotels.com/ramada/york-pennsylvania/ramada-york/rooms-rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&children=0&rooms=1',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'"rateAmount"\s*:\s*"?\$?(\d{2,3})', r'data-price="(\d{2,3})"'],
-    },
-    {
-        'name': 'Inn at York PA',
-        'url_template': 'https://www.innofyork.com/rooms/?check_in_date={checkin}&check_out_date={checkout}&adults=2',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'rate.*?(\d{2,3})', r'price.*?(\d{2,3})'],
-    },
-    {
-        'name': 'Motel 6 York PA',
-        'url_template': 'https://www.motel6.com/en/home/motels.pa.york.4730.html?checkin={checkin}&checkout={checkout}&rooms=1&adults=2',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'"price"\s*:\s*"?(\d{2,3})', r'data-rate="(\d{2,3})"'],
-    },
-    {
-        'name': 'Motel 6 North York PA',
-        'url_template': 'https://www.motel6.com/en/home/motels.pa.york.1028.html?checkin={checkin}&checkout={checkout}&rooms=1&adults=2',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'"price"\s*:\s*"?(\d{2,3})'],
-    },
-    {
-        'name': 'Red Roof Inn York PA',
-        'url_template': 'https://www.redroof.com/property/pa/york/RRI014/?arrivalDate={checkin}&departureDate={checkout}&numAdults=2&numRooms=1',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'"totalRate"\s*:\s*"?(\d{2,3})', r'data-price="(\d{2,3})"'],
-    },
-    {
-        'name': 'Days Inn York PA',
-        'url_template': 'https://www.wyndhamhotels.com/days-inn/york-pennsylvania/days-inn-york/rooms-rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&children=0&rooms=1',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'"rateAmount"\s*:\s*"?\$?(\d{2,3})'],
-    },
-    {
-        'name': 'Quality Inn Suites York East PA',
-        'url_template': 'https://www.choicehotels.com/pennsylvania/york/quality-inn-hotels/pa423/rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&children=0&rooms=1',
-        'price_patterns': [r'\$\s*(\d{2,3})', r'"totalPrice"\s*:\s*"?(\d{2,3})', r'data-price="(\d{2,3})"'],
-    },
+    {'name': 'Ramada by Wyndham York PA',       'google_q': 'Ramada by Wyndham York Pennsylvania'},
+    {'name': 'Inn at York PA',                   'google_q': 'Inn at York Pennsylvania hotel'},
+    {'name': 'Motel 6 York PA',                  'google_q': 'Motel 6 York PA South George Street'},
+    {'name': 'Motel 6 North York PA',            'google_q': 'Motel 6 North York Pennsylvania'},
+    {'name': 'Red Roof Inn York PA',             'google_q': 'Red Roof Inn York Pennsylvania'},
+    {'name': 'Days Inn York PA',                 'google_q': 'Days Inn York Pennsylvania'},
+    {'name': 'Quality Inn Suites York East PA',  'google_q': 'Quality Inn Suites York East Pennsylvania'},
 ]
 
 YORK_EVENTS = [
@@ -69,8 +41,6 @@ YORK_EVENTS = [
     {'month': 10, 'name': 'Pennsylvania Renaissance Faire', 'date': 'Through Oct 25',  'venue': 'Mount Hope Estate', 'impact': 'MODERATE'},
     {'month': 12, 'name': 'Christmas Magic Festival',       'date': 'Dec seasonal',    'venue': 'York County',       'impact': 'MODERATE'},
 ]
-
-UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
 
 def get_events():
@@ -90,16 +60,17 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def fetch_html(url):
-    req = urllib.request.Request(url, headers={
-        'User-Agent': UA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+def fetch_html(url, headers=None):
+    h = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate',
-        'Connection': 'keep-alive',
-        'Cache-Control': 'no-cache',
-    })
-    with urllib.request.urlopen(req, timeout=12) as resp:
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    }
+    if headers:
+        h.update(headers)
+    req = urllib.request.Request(url, headers=h)
+    with urllib.request.urlopen(req, timeout=15) as resp:
         raw = resp.read()
         try:
             return gzip.decompress(raw).decode('utf-8', errors='ignore')
@@ -107,102 +78,190 @@ def fetch_html(url):
             return raw.decode('utf-8', errors='ignore')
 
 
-def extract_price(html, patterns):
-    for pattern in patterns:
-        matches = re.findall(pattern, html, re.IGNORECASE)
-        valid = [int(m) for m in matches if 35 <= int(m) <= 500]
+def fetch_price_google(hotel_q, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    # Google search for hotel price - returns structured data with real prices
+    query = hotel_q + ' hotel price ' + checkin
+    encoded = urllib.parse.quote(query)
+    url = 'https://www.google.com/search?q=' + encoded + '&num=5'
+    try:
+        html = fetch_html(url, {
+            'Accept': 'text/html,application/xhtml+xml',
+            'Referer': 'https://www.google.com/',
+        })
+        # Google shows prices like "$89 per night" or "From $89" in hotel panels
+        # Look for price patterns near the hotel name
+        hotel_word = hotel_q.lower().split()[0]
+        idx = html.lower().find(hotel_word)
+        search_area = html[max(0, idx-500):idx+3000] if idx > 0 else html[:8000]
+
+        # Pattern 1: "From $XX" or "$XX per night" - most reliable
+        patterns = [
+            r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
+            r'\$\s*(\d{2,3})(?!\d)\s*(?:per\s*night|/\s*night|a\s*night)',
+            r'(?:price|rate|cost)\D{0,20}\$\s*(\d{2,3})(?!\d)',
+        ]
+        for pat in patterns:
+            matches = re.findall(pat, search_area)
+            valid = [int(m) for m in matches if 40 <= int(m) <= 500]
+            if valid:
+                return '$' + str(min(valid))
+
+        # Pattern 2: any dollar amount in a reasonable hotel price range
+        # but EXCLUDE $50 which is a common placeholder
+        all_prices = re.findall(r'\$\s*(\d{2,3})(?!\d)', search_area)
+        valid = [int(p) for p in all_prices if 55 <= int(p) <= 400 and int(p) != 50]
+        if valid:
+            from collections import Counter
+            counts = Counter(valid)
+            # Return most common reasonable price (not outliers)
+            return '$' + str(counts.most_common(1)[0][0])
+
+    except Exception as e:
+        print('    google error: ' + str(e)[:60])
+    return None
+
+
+def fetch_price_bing(hotel_q, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    checkin_fmt = datetime.strptime(checkin, '%Y-%m-%d').strftime('%b %d %Y')
+    query = hotel_q + ' rooms rates ' + checkin_fmt
+    encoded = urllib.parse.quote(query)
+    url = 'https://www.bing.com/search?q=' + encoded + '&count=5'
+    try:
+        html = fetch_html(url)
+        hotel_word = hotel_q.lower().split()[0]
+        idx = html.lower().find(hotel_word)
+        search_area = html[max(0, idx-300):idx+2000] if idx > 0 else html[:6000]
+
+        patterns = [
+            r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
+            r'\$\s*(\d{2,3})(?!\d)\s*(?:per\s*night|/night)',
+            r'\$\s*(\d{2,3})(?!\d)',
+        ]
+        for pat in patterns:
+            matches = re.findall(pat, search_area)
+            valid = [int(m) for m in matches if 55 <= int(m) <= 400 and int(m) != 50]
+            if valid:
+                return '$' + str(min(valid))
+    except Exception as e:
+        print('    bing error: ' + str(e)[:60])
+    return None
+
+
+def fetch_price_wyndham(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    slug_map = {
+        'Ramada by Wyndham York PA': 'ramada/york-pennsylvania/ramada-york',
+        'Days Inn York PA': 'days-inn/york-pennsylvania/days-inn-york',
+    }
+    slug = slug_map.get(hotel_name)
+    if not slug:
+        return None
+    url = 'https://www.wyndhamhotels.com/' + slug + '/rooms-rates?checkInDate=' + checkin + '&checkOutDate=' + checkout + '&adults=2&rooms=1'
+    try:
+        html = fetch_html(url)
+        # Look for JSON price embedded in page
+        prices_json = re.findall(r'"price"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)', html)
+        if prices_json:
+            valid = [int(float(p)) for p in prices_json if 40 <= int(float(p)) <= 500]
+            if valid:
+                return '$' + str(min(valid))
+        # Look for price in text
+        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg)', html, re.IGNORECASE)
+        valid = [int(m) for m in matches if 40 <= int(m) <= 500]
         if valid:
             return '$' + str(min(valid))
-    return None
-
-
-def fetch_rate_direct(hotel, checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    url = hotel['url_template'].replace('{checkin}', checkin).replace('{checkout}', checkout)
-    try:
-        html = fetch_html(url)
-        price = extract_price(html, hotel['price_patterns'])
-        if price:
-            print('  direct: ' + price)
-            return price
     except Exception as e:
-        print('  direct error: ' + str(e)[:60])
+        print('    wyndham error: ' + str(e)[:60])
     return None
 
 
-def fetch_rate_kayak(hotel_name, checkin):
+def fetch_price_motel6(hotel_name, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    query = urllib.parse.quote(hotel_name + ' York Pennsylvania')
-    url = 'https://www.kayak.com/hotels/' + query + '/' + checkin + '/' + checkout + '/1adults'
+    prop_map = {
+        'Motel 6 York PA': '4730',
+        'Motel 6 North York PA': '1028',
+    }
+    prop_id = prop_map.get(hotel_name)
+    if not prop_id:
+        return None
+    url = 'https://www.motel6.com/en/home/motels.pa.york.' + prop_id + '.html?checkin=' + checkin + '&checkout=' + checkout + '&rooms=1&adults=2'
     try:
         html = fetch_html(url)
-        prices = re.findall(r'\$\s*(\d{2,3})', html)
-        valid = [int(p) for p in prices if 35 <= int(p) <= 400]
+        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg|USD)', html, re.IGNORECASE)
+        if not matches:
+            matches = re.findall(r'"lowestRate"\s*:\s*"?\$?([\d.]+)', html)
+        valid = [int(float(m)) for m in matches if 40 <= int(float(m)) <= 300]
         if valid:
-            result = '$' + str(min(valid))
-            print('  kayak: ' + result)
-            return result
+            return '$' + str(min(valid))
     except Exception as e:
-        print('  kayak error: ' + str(e)[:60])
+        print('    motel6 error: ' + str(e)[:60])
     return None
 
 
-def fetch_rate_trivago(hotel_name, checkin):
+def fetch_price_redroof(checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    query = urllib.parse.quote(hotel_name + ' York PA')
-    url = 'https://www.trivago.com/?aDate=' + checkin + '&aDuration=1&iRoomType=7&iPathId=4723&sSortOrder=pa&sQuery=' + query
+    url = 'https://www.redroof.com/property/pa/york/RRI014/?arrivalDate=' + checkin + '&departureDate=' + checkout + '&numAdults=2&numRooms=1'
     try:
         html = fetch_html(url)
-        prices = re.findall(r'\$\s*(\d{2,3})', html)
-        valid = [int(p) for p in prices if 35 <= int(p) <= 400]
+        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg|night)', html, re.IGNORECASE)
+        if not matches:
+            matches = re.findall(r'"totalRate"\s*:\s*"?([\d.]+)', html)
+        valid = [int(float(m)) for m in matches if 40 <= int(float(m)) <= 300]
         if valid:
-            result = '$' + str(min(valid))
-            print('  trivago: ' + result)
-            return result
+            return '$' + str(min(valid))
     except Exception as e:
-        print('  trivago error: ' + str(e)[:60])
+        print('    redroof error: ' + str(e)[:60])
     return None
 
 
-def fetch_rate_priceline(hotel_name, checkin):
+def fetch_price_choice(checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    query = urllib.parse.quote(hotel_name + ' York Pennsylvania')
-    url = 'https://www.priceline.com/relax/at/' + query + '/from/' + checkin + '/to/' + checkout + '/rooms/1'
+    url = 'https://www.choicehotels.com/pennsylvania/york/quality-inn-hotels/pa423/rates?checkInDate=' + checkin + '&checkOutDate=' + checkout + '&adults=2&rooms=1'
     try:
         html = fetch_html(url)
-        prices = re.findall(r'\$\s*(\d{2,3})', html[:30000])
-        valid = [int(p) for p in prices if 35 <= int(p) <= 400]
+        matches = re.findall(r'\$\s*(\d{2,3})(?!\d)\s*(?:per night|/night|avg)', html, re.IGNORECASE)
+        if not matches:
+            matches = re.findall(r'"totalPrice"\s*:\s*\{\s*"value"\s*:\s*([\d.]+)', html)
+        valid = [int(float(m)) for m in matches if 40 <= int(float(m)) <= 400]
         if valid:
-            result = '$' + str(min(valid))
-            print('  priceline: ' + result)
-            return result
+            return '$' + str(min(valid))
     except Exception as e:
-        print('  priceline error: ' + str(e)[:60])
+        print('    choice error: ' + str(e)[:60])
     return None
 
 
 def fetch_rate(hotel, checkin):
-    # Try hotel's own website first
-    price = fetch_rate_direct(hotel, checkin)
+    name = hotel['name']
+    price = None
+
+    # 1. Try brand website first (most accurate)
+    if 'Ramada' in name or 'Days Inn' in name:
+        price = fetch_price_wyndham(name, checkin)
+    elif 'Motel 6' in name:
+        price = fetch_price_motel6(name, checkin)
+    elif 'Red Roof' in name:
+        price = fetch_price_redroof(checkin)
+    elif 'Quality Inn' in name:
+        price = fetch_price_choice(checkin)
+
     if price:
+        print('    brand: ' + price)
         return price
     time.sleep(1)
 
-    # Try Kayak
-    price = fetch_rate_kayak(hotel['name'], checkin)
+    # 2. Try Google search (real price shown in search results)
+    price = fetch_price_google(hotel['google_q'], checkin)
     if price:
+        print('    google: ' + price)
         return price
     time.sleep(1)
 
-    # Try Priceline
-    price = fetch_rate_priceline(hotel['name'], checkin)
+    # 3. Try Bing search
+    price = fetch_price_bing(hotel['google_q'], checkin)
     if price:
-        return price
-    time.sleep(1)
-
-    # Try Trivago
-    price = fetch_rate_trivago(hotel['name'], checkin)
-    if price:
+        print('    bing: ' + price)
         return price
 
     return 'N/A'
@@ -211,9 +270,10 @@ def fetch_rate(hotel, checkin):
 def fetch_rates_for_date(checkin):
     rates = {}
     for hotel in HOTELS:
-        print('Fetching: ' + hotel['name'])
-        rates[hotel['name']] = fetch_rate(hotel, checkin)
-        print('  final: ' + rates[hotel['name']])
+        print('  ' + hotel['name'] + ':')
+        rate = fetch_rate(hotel, checkin)
+        rates[hotel['name']] = rate
+        print('  => ' + rate)
         time.sleep(2)
     return rates
 
@@ -278,12 +338,12 @@ def build_email(all_rates, dates, events):
     if events:
         for ev in events:
             imp = ev.get('impact', 'LOW')
-            imp_color = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
+            c = '#c0392b' if imp == 'HIGH' else '#e07800' if imp == 'MODERATE' else '#2a7a2a'
             event_rows += '<tr><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;>'
             event_rows += '<span style=font-size:13px;font-weight:600;color:#1b2e1b;>' + ev['name'] + '</span><br>'
             event_rows += '<span style=font-size:11px;color:#999;>' + ev['date'] + ' - ' + ev['venue'] + '</span>'
             event_rows += '</td><td style=padding:11px 8px;border-bottom:1px solid #f0ece3;text-align:right;>'
-            event_rows += '<span style=background:' + imp_color + ';color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;>' + imp + '</span>'
+            event_rows += '<span style=background:' + c + ';color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:4px;>' + imp + '</span>'
             event_rows += '</td></tr>'
     else:
         event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events this month.</td></tr>'
@@ -312,7 +372,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=padding:0 36px;><div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Rate Impact Watch</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table></div>'
     html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;><span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
-    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Rates from hotel websites, Kayak, Priceline and Trivago<br>Delivered to: khushbudave24@gmail.com</p></div>'
+    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Rates from hotel brand websites, Google and Bing search<br>Delivered to: khushbudave24@gmail.com</p></div>'
     html += '</div></body></html>'
     return html
 
