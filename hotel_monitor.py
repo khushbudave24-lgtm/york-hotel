@@ -1,4 +1,4 @@
-impor smtplib
+import smtplib
 import os
 import time
 import json
