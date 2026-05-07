@@ -2,30 +2,28 @@ import smtplib
 import os
 import time
 import json
+import re
 import urllib.request
 import urllib.parse
+import gzip
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
 import pytz
 
-RAPIDAPI_KEY    = os.environ.get('RAPIDAPI_KEY', '')
 SENDER_EMAIL    = os.environ.get('SENDER_EMAIL', '')
 SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE        = 'America/New_York'
-API_HOST        = 'apidojo-booking-v1.p.rapidapi.com'
 
-# These exact hotel IDs confirmed correct from earlier logs
-# city: York (Pennsylvania) verified
 HOTELS = [
-    {'name': 'Ramada by Wyndham York',    'id': '342291'},
-    {'name': 'Inn at York',                'id': '290380'},
-    {'name': 'Motel 6 York PA',            'id': '375049'},
-    {'name': 'Motel 6 North York PA',      'id': '491289'},
-    {'name': 'Red Roof Inn York',          'id': '344413'},
-    {'name': 'Days Inn York',              'id': '311652'},
-    {'name': 'Quality Inn York East',      'id': '291498'},
+    {'name': 'Ramada by Wyndham York',  'tripadvisor': 'Ramada-York-Pennsylvania'},
+    {'name': 'Inn at York',              'tripadvisor': 'Inn-at-York-Pennsylvania'},
+    {'name': 'Motel 6 York PA',          'tripadvisor': 'Motel-6-York-PA'},
+    {'name': 'Motel 6 North York PA',    'tripadvisor': 'Motel-6-North-York-PA'},
+    {'name': 'Red Roof Inn York',        'tripadvisor': 'Red-Roof-Inn-York-PA'},
+    {'name': 'Days Inn York',            'tripadvisor': 'Days-Inn-York-PA'},
+    {'name': 'Quality Inn York East',    'tripadvisor': 'Quality-Inn-York-East-PA'},
 ]
 
 YORK_EVENTS = [
@@ -43,6 +41,13 @@ YORK_EVENTS = [
     {'month': 10, 'name': 'Pennsylvania Renaissance Faire', 'date': 'Through Oct 25',  'venue': 'Mount Hope Estate', 'impact': 'MODERATE'},
     {'month': 12, 'name': 'Christmas Magic Festival',       'date': 'Dec seasonal',    'venue': 'York County',       'impact': 'MODERATE'},
 ]
+
+HEADERS = {
+    'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate',
+}
 
 
 def get_events():
@@ -62,156 +67,173 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def api_call(path, params):
-    url = 'https://' + API_HOST + path + '?' + urllib.parse.urlencode(params)
-    req = urllib.request.Request(url, headers={
-        'X-RapidAPI-Key':  RAPIDAPI_KEY,
-        'X-RapidAPI-Host': API_HOST,
-        'Accept':          'application/json',
-    })
-    with urllib.request.urlopen(req, timeout=25) as resp:
-        return json.loads(resp.read().decode('utf-8'))
+def fetch_url(url, extra_headers=None):
+    h = dict(HEADERS)
+    if extra_headers:
+        h.update(extra_headers)
+    req = urllib.request.Request(url, headers=h)
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read()
+        try:
+            return gzip.decompress(raw).decode('utf-8', errors='ignore')
+        except Exception:
+            return raw.decode('utf-8', errors='ignore')
 
 
-def extract_price(data):
-    if isinstance(data, list):
-        for item in data:
-            p = extract_price(item)
-            if p:
-                return p
+def get_price_wyndham(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    slugs = {
+        'Ramada by Wyndham York': 'ramada/york-pennsylvania/ramada-york',
+        'Days Inn York':          'days-inn/york-pennsylvania/days-inn-york',
+    }
+    slug = slugs.get(hotel_name)
+    if not slug:
         return None
-    if not isinstance(data, dict):
-        return None
-    # Check most likely price fields first
-    for key in ['min_total_price', 'composite_price', 'rack_rate']:
-        v = data.get(key)
-        if isinstance(v, (int, float)) and 30 < v < 1000:
-            return float(v)
-    # Check nested breakdown objects
-    for key in ['composite_price_breakdown', 'product_price_breakdown', 'price_breakdown']:
-        pb = data.get(key, {})
-        if isinstance(pb, dict):
-            for subkey in ['gross_amount_per_night', 'gross_amount', 'all_inclusive_amount', 'net_amount']:
-                sub = pb.get(subkey, {})
-                if isinstance(sub, dict):
-                    v = sub.get('value')
-                    if isinstance(v, (int, float)) and 30 < v < 1000:
-                        return float(v)
-                elif isinstance(sub, (int, float)) and 30 < sub < 1000:
-                    return float(sub)
-    # Check rooms blocks
-    rooms = data.get('rooms', {})
-    if isinstance(rooms, dict):
-        best = None
-        for rid, rdata in rooms.items():
-            if isinstance(rdata, dict):
-                for block in rdata.get('block', []):
-                    if isinstance(block, dict):
-                        pb = block.get('price_breakdown', {})
-                        if isinstance(pb, dict):
-                            for pkey in ['gross_price', 'all_inclusive_price', 'net_price']:
-                                v = pb.get(pkey)
-                                if isinstance(v, (int, float)) and 30 < v < 1000:
-                                    if best is None or v < best:
-                                        best = float(v)
-        if best:
-            return best
-    # Check block array at top level
-    for block in data.get('block', []):
-        if isinstance(block, dict):
-            pb = block.get('price_breakdown', {})
-            if isinstance(pb, dict):
-                for pkey in ['gross_price', 'all_inclusive_price', 'net_price']:
-                    v = pb.get(pkey)
-                    if isinstance(v, (int, float)) and 30 < v < 1000:
-                        return float(v)
+    url = 'https://www.wyndhamhotels.com/' + slug + '/rooms-rates?checkInDate=' + checkin + '&checkOutDate=' + checkout + '&adults=2&rooms=1'
+    try:
+        html = fetch_url(url)
+        # Look for structured JSON price data
+        prices = re.findall(r'"price":\s*"?\$?([\d]+\.?\d*)"?', html)
+        if not prices:
+            prices = re.findall(r'\$\s*(\d{2,3})(?:\.\d{2})?\s*/\s*night', html, re.IGNORECASE)
+        if not prices:
+            prices = re.findall(r'data-price="(\d{2,3})"', html)
+        valid = [int(float(p)) for p in prices if 40 <= int(float(p)) <= 500]
+        if valid:
+            return '$' + str(min(valid))
+    except Exception as e:
+        print('    wyndham err: ' + str(e)[:50])
     return None
 
 
-def fetch_all_rates_one_call(checkin):
+def get_price_redroof(checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    rates = {h['name']: 'N/A' for h in HOTELS}
-
-    # ONE single API call gets all hotels - most efficient use of free quota
+    url = 'https://www.redroof.com/property/pa/york/RRI014/?arrivalDate=' + checkin + '&departureDate=' + checkout + '&numAdults=2&numRooms=1'
     try:
-        data = api_call('/properties/v2/get-rooms', {
-            'hotel_id':       ','.join(h['id'] for h in HOTELS),
-            'arrival_date':   checkin,
-            'departure_date': checkout,
-            'adults':         '2',
-            'room_qty':       '1',
-            'currency_code':  'USD',
-            'languagecode':   'en-us',
-            'units':          'metric',
-        })
-        print('  v2/get-rooms bulk: status OK, type=' + str(type(data).__name__))
-        raw = json.dumps(data)
-        print('  preview: ' + raw[:300])
-
-        # Try to match hotels in response
-        resp_list = data if isinstance(data, list) else [data]
-        for item in resp_list:
-            if not isinstance(item, dict):
-                continue
-            hid = str(item.get('hotel_id', ''))
-            hotel_match = next((h for h in HOTELS if h['id'] == hid), None)
-            if hotel_match:
-                price = extract_price(item)
-                if price:
-                    rates[hotel_match['name']] = '$' + str(int(round(price)))
-                    print('  MATCHED ' + hotel_match['name'] + ' = $' + str(int(round(price))))
-
-        # If no matches, try detail endpoint for each (only if bulk failed)
-        found = sum(1 for v in rates.values() if v != 'N/A')
-        if found == 0:
-            print('  Bulk returned no prices, trying individual detail calls...')
-            for hotel in HOTELS:
-                try:
-                    time.sleep(3)
-                    d2 = api_call('/properties/detail', {
-                        'hotel_id':        hotel['id'],
-                        'arrival_date':    checkin,
-                        'departure_date':  checkout,
-                        'adults':          '2',
-                        'room_qty':        '1',
-                        'currency_code':   'USD',
-                        'languagecode':    'en-us',
-                        'units':           'metric',
-                        'temperature_unit':'c',
-                    })
-                    item = d2[0] if isinstance(d2, list) and d2 else d2
-                    price = extract_price(item) if isinstance(item, dict) else None
-                    if price:
-                        rates[hotel['name']] = '$' + str(int(round(price)))
-                        print('  detail ' + hotel['name'] + ' = $' + str(int(round(price))))
-                except Exception as e:
-                    print('  detail error ' + hotel['name'] + ': ' + str(e)[:50])
-
+        html = fetch_url(url)
+        prices = re.findall(r'"totalRate":\s*"?([\d.]+)"?', html)
+        if not prices:
+            prices = re.findall(r'\$\s*(\d{2,3})(?:\.\d{2})?\s*/\s*night', html, re.IGNORECASE)
+        valid = [int(float(p)) for p in prices if 40 <= int(float(p)) <= 400]
+        if valid:
+            return '$' + str(min(valid))
     except Exception as e:
-        print('  bulk error: ' + str(e)[:100])
-        # Fallback: try one detail call for each hotel with long delays
-        for hotel in HOTELS:
-            try:
-                time.sleep(4)
-                d2 = api_call('/properties/detail', {
-                    'hotel_id':        hotel['id'],
-                    'arrival_date':    checkin,
-                    'departure_date':  checkout,
-                    'adults':          '2',
-                    'room_qty':        '1',
-                    'currency_code':   'USD',
-                    'languagecode':    'en-us',
-                    'units':           'metric',
-                    'temperature_unit':'c',
-                })
-                item = d2[0] if isinstance(d2, list) and d2 else d2
-                price = extract_price(item) if isinstance(item, dict) else None
-                if price:
-                    rates[hotel['name']] = '$' + str(int(round(price)))
-                    print('  fallback ' + hotel['name'] + ' = $' + str(int(round(price))))
-            except Exception as e2:
-                print('  fallback error ' + hotel['name'] + ': ' + str(e2)[:50])
+        print('    redroof err: ' + str(e)[:50])
+    return None
 
+
+def get_price_motel6(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    prop = {'Motel 6 York PA': '4730', 'Motel 6 North York PA': '1028'}.get(hotel_name)
+    if not prop:
+        return None
+    url = 'https://www.motel6.com/en/home/motels.pa.york.' + prop + '.html?checkin=' + checkin + '&checkout=' + checkout + '&rooms=1&adults=2'
+    try:
+        html = fetch_url(url)
+        prices = re.findall(r'"lowestRate":\s*"?([\d.]+)"?', html)
+        if not prices:
+            prices = re.findall(r'\$\s*(\d{2,3})(?:\.\d{2})?\s*/\s*night', html, re.IGNORECASE)
+        valid = [int(float(p)) for p in prices if 40 <= int(float(p)) <= 300]
+        if valid:
+            return '$' + str(min(valid))
+    except Exception as e:
+        print('    motel6 err: ' + str(e)[:50])
+    return None
+
+
+def get_price_choice(checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    url = 'https://www.choicehotels.com/pennsylvania/york/quality-inn-hotels/pa423/rates?checkInDate=' + checkin + '&checkOutDate=' + checkout + '&adults=2&rooms=1'
+    try:
+        html = fetch_url(url)
+        prices = re.findall(r'"totalPrice":\s*\{[^}]*"value":\s*([\d.]+)', html)
+        if not prices:
+            prices = re.findall(r'\$\s*(\d{2,3})(?:\.\d{2})?\s*/\s*night', html, re.IGNORECASE)
+        valid = [int(float(p)) for p in prices if 40 <= int(float(p)) <= 400]
+        if valid:
+            return '$' + str(min(valid))
+    except Exception as e:
+        print('    choice err: ' + str(e)[:50])
+    return None
+
+
+def get_price_inn_york(checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    # Inn at York uses a booking engine
+    url = 'https://be.synxis.com/?hotel=3905&level=hotel&locale=en-US&arrive=' + checkin + '&depart=' + checkout + '&adult=2&rooms=1'
+    try:
+        html = fetch_url(url)
+        prices = re.findall(r'\$\s*(\d{2,3})(?:\.\d{2})?', html)
+        valid = [int(float(p)) for p in prices if 60 <= int(float(p)) <= 400]
+        if valid:
+            return '$' + str(min(valid))
+    except Exception as e:
+        print('    inn york err: ' + str(e)[:50])
+    return None
+
+
+def get_price_fallback_google(hotel_name, checkin):
+    # Use Google cache / search snippet to find price - no API key needed
+    query = hotel_name + ' York PA hotel room rate ' + checkin + ' per night USD'
+    url = 'https://www.google.com/search?q=' + urllib.parse.quote(query) + '&hl=en&gl=us'
+    try:
+        html = fetch_url(url, {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        })
+        # Extract prices from Google search results - skip $50 (common default)
+        # Look for "From $XX" or "$XX per night" patterns
+        patterns = [
+            r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
+            r'\$\s*(\d{2,3})(?!\d)\s*/\s*night',
+            r'\$\s*(\d{2,3})(?!\d)\s*per\s*night',
+        ]
+        for pat in patterns:
+            matches = re.findall(pat, html)
+            valid = [int(m) for m in matches if 55 <= int(m) <= 400]
+            if valid:
+                return '$' + str(min(valid))
+    except Exception as e:
+        print('    google err: ' + str(e)[:50])
+    return None
+
+
+def fetch_rate(hotel, checkin):
+    name = hotel['name']
+    price = None
+
+    # Try brand website first
+    if 'Ramada' in name or 'Days Inn' in name:
+        price = get_price_wyndham(name, checkin)
+    elif 'Motel 6' in name:
+        price = get_price_motel6(name, checkin)
+    elif 'Red Roof' in name:
+        price = get_price_redroof(checkin)
+    elif 'Quality Inn' in name:
+        price = get_price_choice(checkin)
+    elif 'Inn at York' in name:
+        price = get_price_inn_york(checkin)
+
+    if price:
+        print('    brand: ' + price)
+        return price
+    time.sleep(2)
+
+    # Fallback: Google search snippet
+    price = get_price_fallback_google(name, checkin)
+    if price:
+        print('    google: ' + price)
+        return price
+
+    return 'N/A'
+
+
+def fetch_rates_for_date(checkin):
+    rates = {}
+    for hotel in HOTELS:
+        print('  ' + hotel['name'])
+        rates[hotel['name']] = fetch_rate(hotel, checkin)
+        print('  => ' + rates[hotel['name']])
+        time.sleep(2)
     return rates
 
 
@@ -292,7 +314,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Today + Weekend</span>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
-    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live via Booking.com</span></div>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Direct from Hotel Sites</span></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
@@ -340,11 +362,9 @@ def main():
     print('Dates: ' + today_str + ' ' + friday_str + ' ' + saturday_str)
     all_rates = {}
     for date in [today_str, friday_str, saturday_str]:
-        print('Fetching: ' + date)
-        all_rates[date] = fetch_all_rates_one_call(date)
-        for h in HOTELS:
-            print('  ' + h['name'] + ': ' + all_rates[date].get(h['name'], 'N/A'))
-        time.sleep(5)
+        print('--- ' + date + ' ---')
+        all_rates[date] = fetch_rates_for_date(date)
+        time.sleep(3)
     events = get_events()
     print('Events: ' + str(len(events)))
     html = build_email(all_rates, dates, events)
