@@ -7,6 +7,7 @@ import urllib.request
 import urllib.parse
 import gzip
 import ssl
+import random
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta
@@ -18,62 +19,13 @@ RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE        = 'America/New_York'
 
 HOTELS = [
-    {
-        'name':        'Ramada by Wyndham York',
-        'brand_url':   'https://www.wyndhamhotels.com/ramada/york-pennsylvania/ramada-york/rooms-rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&rooms=1',
-        'expedia_id':  '108742',
-        'ta_id':       'd73394',
-        'priceline_q': 'Ramada+by+Wyndham+York+Pennsylvania',
-        'booking_q':   'Ramada by Wyndham York PA',
-    },
-    {
-        'name':        'Inn at York',
-        'brand_url':   'https://www.innatyork.com/rooms/?check_in={checkin}&check_out={checkout}&adults=2',
-        'expedia_id':  '133853',
-        'ta_id':       'd73399',
-        'priceline_q': 'Inn+at+York+Pennsylvania',
-        'booking_q':   'Inn at York PA',
-    },
-    {
-        'name':        'Motel 6 York PA',
-        'brand_url':   'https://www.motel6.com/en/home/motels.pa.york.4730.html?checkin={checkin}&checkout={checkout}&rooms=1&adults=2',
-        'expedia_id':  '127494',
-        'ta_id':       'd73401',
-        'priceline_q': 'Motel+6+York+Pennsylvania',
-        'booking_q':   'Motel 6 York PA',
-    },
-    {
-        'name':        'Motel 6 North York PA',
-        'brand_url':   'https://www.motel6.com/en/home/motels.pa.york.1028.html?checkin={checkin}&checkout={checkout}&rooms=1&adults=2',
-        'expedia_id':  '127495',
-        'ta_id':       'd73402',
-        'priceline_q': 'Motel+6+North+York+Pennsylvania',
-        'booking_q':   'Motel 6 North York PA',
-    },
-    {
-        'name':        'Red Roof Inn York',
-        'brand_url':   'https://www.redroof.com/property/pa/york/RRI687/?arrivalDate={checkin}&departureDate={checkout}&numAdults=2&numRooms=1',
-        'expedia_id':  '112953',
-        'ta_id':       'd73403',
-        'priceline_q': 'Red+Roof+Inn+York+Pennsylvania',
-        'booking_q':   'Red Roof Inn York PA',
-    },
-    {
-        'name':        'Days Inn York',
-        'brand_url':   'https://www.wyndhamhotels.com/days-inn/york-pennsylvania/days-inn-york/rooms-rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&rooms=1',
-        'expedia_id':  '101337',
-        'ta_id':       'd73404',
-        'priceline_q': 'Days+Inn+York+Pennsylvania',
-        'booking_q':   'Days Inn York PA',
-    },
-    {
-        'name':        'Quality Inn York East',
-        'brand_url':   'https://www.choicehotels.com/pennsylvania/york/quality-inn-hotels/pa423/rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&rooms=1',
-        'expedia_id':  '112954',
-        'ta_id':       'd73405',
-        'priceline_q': 'Quality+Inn+Suites+York+East+Pennsylvania',
-        'booking_q':   'Quality Inn York East PA',
-    },
+    {'name': 'Ramada by Wyndham York',  'search': 'Ramada by Wyndham York PA hotel'},
+    {'name': 'Inn at York',              'search': 'Inn at York PA hotel innatyork.com'},
+    {'name': 'Motel 6 York PA',          'search': 'Motel 6 York Pennsylvania South George Street'},
+    {'name': 'Motel 6 North York PA',    'search': 'Motel 6 North York Pennsylvania hotel'},
+    {'name': 'Red Roof Inn York',        'search': 'Red Roof Inn York Pennsylvania downtown'},
+    {'name': 'Days Inn York',            'search': 'Days Inn York Pennsylvania hotel'},
+    {'name': 'Quality Inn York East',    'search': 'Quality Inn Suites York East Pennsylvania'},
 ]
 
 YORK_EVENTS_ALL = [
@@ -94,6 +46,14 @@ YORK_EVENTS_ALL = [
     {'start': '2027-02-06', 'end': '2027-02-08', 'name': 'Home and Garden Show',               'venue': 'York Expo Center',          'impact': 'HIGH'},
     {'start': '2027-03-14', 'end': '2027-03-14', 'name': 'York Saint Patricks Day Parade',     'venue': 'Downtown York',             'impact': 'MODERATE'},
     {'start': '2027-04-20', 'end': '2027-04-25', 'name': 'York Train Show',                    'venue': 'York Expo Center',          'impact': 'HIGH'},
+]
+
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Safari/605.1.15',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4.1 Mobile/15E148 Safari/604.1',
 ]
 
 
@@ -127,41 +87,48 @@ def make_ctx():
     return ctx
 
 
-def fetch_html(url, ua=None):
+def fetch_html(url, ua=None, referer=None):
     headers = {
-        'User-Agent':      ua or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'User-Agent':      ua or random.choice(USER_AGENTS),
+        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control':   'no-cache',
         'Pragma':          'no-cache',
+        'DNT':             '1',
         'Connection':      'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
     }
+    if referer:
+        headers['Referer'] = referer
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=18, context=make_ctx()) as r:
+    with urllib.request.urlopen(req, timeout=20, context=make_ctx()) as r:
         raw = r.read()
+        enc = r.headers.get('Content-Encoding', '')
+        if 'gzip' in enc:
+            return gzip.decompress(raw).decode('utf-8', errors='ignore')
         try:
             return gzip.decompress(raw).decode('utf-8', errors='ignore')
         except Exception:
             return raw.decode('utf-8', errors='ignore')
 
 
-def parse_price(html, min_p=40, max_p=500):
+def parse_price(text, min_p=40, max_p=500):
     patterns = [
         r'"totalPricePerNight"\s*:\s*\{"formatted"\s*:\s*"\$([\d,]+)"',
         r'"price"\s*:\s*\{"lead"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
-        r'"displayPrice"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
-        r'"totalPrice"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
         r'"amount"\s*:\s*([\d.]+)\s*,\s*"currencyCode"\s*:\s*"USD"',
+        r'"displayPrice"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
         r'"totalRate"\s*:\s*"?([\d.]+)"?',
         r'"lowestRate"\s*:\s*"?([\d.]+)"?',
         r'\$\s*(\d{2,3})(?:\.\d{2})?\s*/\s*night',
         r'\$\s*(\d{2,3})(?:\.\d{2})?\s*per\s*night',
         r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
         r'[Ss]tarting\s*(?:at\s*)?\$\s*(\d{2,3})(?!\d)',
+        r'(?:price|rate|cost)[^\d]{0,30}(\d{2,3})(?!\d)',
     ]
     for pat in patterns:
-        matches = re.findall(pat, html)
+        matches = re.findall(pat, text)
         valid   = [int(float(m.replace(',', ''))) for m in matches
                    if min_p <= int(float(m.replace(',', ''))) <= max_p]
         if valid:
@@ -169,94 +136,126 @@ def parse_price(html, min_p=40, max_p=500):
     return None
 
 
-# ── 1. Brand website ─────────────────────────────────────────────────────────
-def try_brand(hotel, checkin, checkout):
-    url = hotel['brand_url'].replace('{checkin}', checkin).replace('{checkout}', checkout)
+def try_google(hotel_name, checkin):
+    dt_in  = datetime.strptime(checkin, '%Y-%m-%d')
+    dt_out = dt_in + timedelta(days=1)
+    # Google Hotels search with dates
+    checkin_fmt  = dt_in.strftime('%Y-%m-%d')
+    checkout_fmt = dt_out.strftime('%Y-%m-%d')
+    query = hotel_name + ' hotel room rate ' + checkin_fmt
+    url   = 'https://www.google.com/search?q=' + urllib.parse.quote(query) + '&hl=en&gl=us&num=5'
     try:
-        html  = fetch_html(url)
-        price = parse_price(html)
+        html = fetch_html(url, ua='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)')
+        # Google shows hotel prices in rich results
+        # Look for price patterns near hotel name keyword
+        kw  = hotel_name.lower().split()[0]
+        idx = html.lower().find(kw)
+        search_area = html[max(0, idx - 200):idx + 3000] if idx > 0 else html[:8000]
+        # Strict patterns - must be "From $XX" or "$XX/night"
+        for pat in [
+            r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
+            r'\$\s*(\d{2,3})(?!\d)\s*/\s*night',
+            r'\$\s*(\d{2,3})(?!\d)\s*per\s*night',
+            r'[Pp]rice[^\d]{0,20}\$\s*(\d{2,3})(?!\d)',
+        ]:
+            matches = re.findall(pat, search_area)
+            valid = [int(m) for m in matches if 50 <= int(m) <= 400]
+            if valid:
+                print('    google OK: $' + str(min(valid)))
+                return '$' + str(min(valid))
+    except Exception as e:
+        print('    google err: ' + str(e)[:60])
+    return None
+
+
+def try_hotels_com(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    url = ('https://www.hotels.com/search.do?q-destination=York%2C+Pennsylvania'
+           + '&q-check-in=' + checkin
+           + '&q-check-out=' + checkout
+           + '&q-rooms=1&q-adult-size=2&sort-order=STAR_RATING_HIGHEST_FIRST')
+    try:
+        html = fetch_html(url, referer='https://www.hotels.com/')
+        kw   = hotel_name.lower().split()[0]
+        idx  = html.lower().find(kw)
+        if idx > 0:
+            chunk = html[idx:idx + 2000]
+            price = parse_price(chunk)
+            if price:
+                print('    hotels.com OK: ' + price)
+                return price
+    except Exception as e:
+        print('    hotels.com err: ' + str(e)[:60])
+    return None
+
+
+def try_kayak(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    slug = hotel_name.lower().replace(' ', '-').replace('/', '-')
+    url  = 'https://www.kayak.com/hotels/' + urllib.parse.quote(slug) + '/' + checkin + '/' + checkout + '/1adults'
+    try:
+        html = fetch_html(url, referer='https://www.kayak.com/')
+        price = parse_price(html[:30000])
         if price:
-            print('    brand OK: ' + price)
+            print('    kayak OK: ' + price)
             return price
     except Exception as e:
-        print('    brand err: ' + str(e)[:60])
+        print('    kayak err: ' + str(e)[:60])
     return None
 
 
-# ── 2. Expedia ────────────────────────────────────────────────────────────────
-def try_expedia(hotel, checkin, checkout):
-    eid  = hotel['expedia_id']
-    name = hotel['name']
-    urls = [
-        'https://www.expedia.com/h' + eid + '.Hotel-Information?chkin=' + checkin + '&chkout=' + checkout + '&rm1=a2',
-        'https://www.expedia.com/Hotel-Search?destination=' + urllib.parse.quote('York, Pennsylvania') + '&startDate=' + checkin + '&endDate=' + checkout + '&adults=2&rooms=1',
-    ]
-    for url in urls:
-        try:
-            html = fetch_html(url)
-            # For search page, find hotel section first
-            if 'Hotel-Search' in url:
-                kw  = name.lower().split()[0]
-                idx = html.lower().find(kw)
-                if idx < 0:
-                    continue
-                html = html[idx:idx + 3000]
-            price = parse_price(html)
-            if price:
-                print('    expedia OK: ' + price)
-                return price
-        except Exception as e:
-            print('    expedia err: ' + str(e)[:60])
-        time.sleep(1)
-    return None
-
-
-# ── 3. TripAdvisor ────────────────────────────────────────────────────────────
-def try_tripadvisor(hotel, checkin, checkout):
-    query = urllib.parse.quote(hotel['name'] + ' York Pennsylvania')
-    url   = ('https://www.tripadvisor.com/Search?q=' + query
-             + '&searchSessionId=x&sid=x&blockRedirect=true&ssrc=A&geo=52687'
-             + '&checkin=' + checkin + '&checkout=' + checkout)
+def try_orbitz(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    url = ('https://www.orbitz.com/Hotel-Search?destination='
+           + urllib.parse.quote('York, Pennsylvania')
+           + '&startDate=' + checkin
+           + '&endDate=' + checkout
+           + '&adults=2&rooms=1')
     try:
-        html  = fetch_html(url, ua='Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15')
-        kw    = hotel['name'].lower().split()[0]
-        idx   = html.lower().find(kw)
-        chunk = html[max(0, idx):idx + 3000] if idx > 0 else html[:5000]
+        html = fetch_html(url, referer='https://www.orbitz.com/')
+        kw   = hotel_name.lower().split()[0]
+        idx  = html.lower().find(kw)
+        chunk = html[max(0, idx):idx + 2000] if idx > 0 else html[:8000]
         price = parse_price(chunk)
         if price:
-            print('    tripadvisor OK: ' + price)
+            print('    orbitz OK: ' + price)
             return price
     except Exception as e:
-        print('    tripadvisor err: ' + str(e)[:60])
+        print('    orbitz err: ' + str(e)[:60])
     return None
 
 
-# ── 4. Priceline ──────────────────────────────────────────────────────────────
-def try_priceline(hotel, checkin, checkout):
-    q   = hotel['priceline_q']
-    url = ('https://www.priceline.com/relax/at/' + q
-           + '/from/' + checkin + '/to/' + checkout
-           + '/rooms/1?adults=2')
+def try_hotwire(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    url = ('https://www.hotwire.com/Hotels?destination='
+           + urllib.parse.quote('York, PA')
+           + '&startDate=' + checkin
+           + '&endDate=' + checkout
+           + '&numRooms=1&numAdults=2')
     try:
-        html  = fetch_html(url)
-        price = parse_price(html[:40000])
+        html = fetch_html(url, referer='https://www.hotwire.com/')
+        kw   = hotel_name.lower().split()[0]
+        idx  = html.lower().find(kw)
+        chunk = html[max(0, idx):idx + 2000] if idx > 0 else html[:8000]
+        price = parse_price(chunk)
         if price:
-            print('    priceline OK: ' + price)
+            print('    hotwire OK: ' + price)
             return price
     except Exception as e:
-        print('    priceline err: ' + str(e)[:60])
+        print('    hotwire err: ' + str(e)[:60])
     return None
 
 
-# ── 5. Booking.com ────────────────────────────────────────────────────────────
-def try_booking(hotel, checkin, checkout):
-    q   = urllib.parse.quote(hotel['booking_q'])
-    url = ('https://www.booking.com/searchresults.html?ss=' + q
-           + '&checkin=' + checkin + '&checkout=' + checkout
-           + '&group_adults=2&no_rooms=1&group_children=0&lang=en-us')
+def try_booking(hotel_name, checkin):
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    url = ('https://www.booking.com/searchresults.html?ss='
+           + urllib.parse.quote(hotel_name + ' York Pennsylvania')
+           + '&checkin=' + checkin
+           + '&checkout=' + checkout
+           + '&group_adults=2&no_rooms=1&lang=en-us')
     try:
-        html  = fetch_html(url)
-        kw    = hotel['name'].lower().split()[0]
+        html  = fetch_html(url, referer='https://www.booking.com/')
+        kw    = hotel_name.lower().split()[0]
         idx   = html.lower().find(kw)
         chunk = html[max(0, idx):idx + 3000] if idx > 0 else html[:8000]
         price = parse_price(chunk)
@@ -268,15 +267,59 @@ def try_booking(hotel, checkin, checkout):
     return None
 
 
-def fetch_rate(hotel, checkin):
+def try_expedia(hotel_name, expedia_id, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+    urls = [
+        'https://www.expedia.com/h' + expedia_id + '.Hotel-Information?chkin=' + checkin + '&chkout=' + checkout + '&rm1=a2',
+        'https://www.expedia.com/Hotel-Search?destination=' + urllib.parse.quote('York, Pennsylvania') + '&startDate=' + checkin + '&endDate=' + checkout + '&adults=2&rooms=1',
+    ]
+    for url in urls:
+        try:
+            time.sleep(random.uniform(2, 4))
+            html  = fetch_html(url, referer='https://www.expedia.com/')
+            kw    = hotel_name.lower().split()[0]
+            idx   = html.lower().find(kw)
+            chunk = html[max(0, idx):idx + 3000] if idx > 0 else html
+            price = parse_price(chunk)
+            if price:
+                print('    expedia OK: ' + price)
+                return price
+        except Exception as e:
+            print('    expedia err: ' + str(e)[:60])
+    return None
 
-    for source_fn in [try_brand, try_expedia, try_tripadvisor, try_priceline, try_booking]:
-        price = source_fn(hotel, checkin, checkout)
-        if price:
-            return price
-        time.sleep(2)
 
+EXPEDIA_IDS = {
+    'Ramada by Wyndham York': '108742',
+    'Inn at York':             '133853',
+    'Motel 6 York PA':         '127494',
+    'Motel 6 North York PA':   '127495',
+    'Red Roof Inn York':       '112953',
+    'Days Inn York':           '101337',
+    'Quality Inn York East':   '112954',
+}
+
+
+def fetch_rate(hotel, checkin):
+    name = hotel['name']
+    # Try each source in order - stop at first success
+    sources = [
+        ('google',     lambda: try_google(name, checkin)),
+        ('expedia',    lambda: try_expedia(name, EXPEDIA_IDS.get(name, ''), checkin)),
+        ('hotels.com', lambda: try_hotels_com(name, checkin)),
+        ('booking',    lambda: try_booking(name, checkin)),
+        ('orbitz',     lambda: try_orbitz(name, checkin)),
+        ('kayak',      lambda: try_kayak(name, checkin)),
+        ('hotwire',    lambda: try_hotwire(name, checkin)),
+    ]
+    for src_name, src_fn in sources:
+        try:
+            price = src_fn()
+            if price:
+                return price
+        except Exception as e:
+            print('    ' + src_name + ' err: ' + str(e)[:50])
+        time.sleep(random.uniform(1, 3))
     return 'N/A'
 
 
@@ -286,7 +329,7 @@ def fetch_rates_for_date(checkin):
         print('  ' + hotel['name'])
         rates[hotel['name']] = fetch_rate(hotel, checkin)
         print('  => ' + rates[hotel['name']])
-        time.sleep(2)
+        time.sleep(random.uniform(2, 4))
     return rates
 
 
@@ -429,7 +472,7 @@ def main():
     for date in [today_str, friday_str, saturday_str]:
         print('--- ' + date + ' ---')
         all_rates[date] = fetch_rates_for_date(date)
-        time.sleep(3)
+        time.sleep(5)
     events = get_events()
     print('Upcoming events: ' + str(len(events)))
     html = build_email(all_rates, dates, events)
