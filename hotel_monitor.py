@@ -17,48 +17,94 @@ SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE        = 'America/New_York'
 
-# Expedia property IDs for each hotel - verified from Expedia URLs
 HOTELS = [
-    {'name': 'Ramada by Wyndham York',  'expedia_id': '108742'},
-    {'name': 'Inn at York',              'expedia_id': '133853'},
-    {'name': 'Motel 6 York PA',          'expedia_id': '127494'},
-    {'name': 'Motel 6 North York PA',    'expedia_id': '127495'},
-    {'name': 'Red Roof Inn York',        'expedia_id': '112953'},
-    {'name': 'Days Inn York',            'expedia_id': '101337'},
-    {'name': 'Quality Inn York East',    'expedia_id': '112954'},
+    {
+        'name':        'Ramada by Wyndham York',
+        'brand_url':   'https://www.wyndhamhotels.com/ramada/york-pennsylvania/ramada-york/rooms-rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&rooms=1',
+        'expedia_id':  '108742',
+        'ta_id':       'd73394',
+        'priceline_q': 'Ramada+by+Wyndham+York+Pennsylvania',
+        'booking_q':   'Ramada by Wyndham York PA',
+    },
+    {
+        'name':        'Inn at York',
+        'brand_url':   'https://www.innatyork.com/rooms/?check_in={checkin}&check_out={checkout}&adults=2',
+        'expedia_id':  '133853',
+        'ta_id':       'd73399',
+        'priceline_q': 'Inn+at+York+Pennsylvania',
+        'booking_q':   'Inn at York PA',
+    },
+    {
+        'name':        'Motel 6 York PA',
+        'brand_url':   'https://www.motel6.com/en/home/motels.pa.york.4730.html?checkin={checkin}&checkout={checkout}&rooms=1&adults=2',
+        'expedia_id':  '127494',
+        'ta_id':       'd73401',
+        'priceline_q': 'Motel+6+York+Pennsylvania',
+        'booking_q':   'Motel 6 York PA',
+    },
+    {
+        'name':        'Motel 6 North York PA',
+        'brand_url':   'https://www.motel6.com/en/home/motels.pa.york.1028.html?checkin={checkin}&checkout={checkout}&rooms=1&adults=2',
+        'expedia_id':  '127495',
+        'ta_id':       'd73402',
+        'priceline_q': 'Motel+6+North+York+Pennsylvania',
+        'booking_q':   'Motel 6 North York PA',
+    },
+    {
+        'name':        'Red Roof Inn York',
+        'brand_url':   'https://www.redroof.com/property/pa/york/RRI687/?arrivalDate={checkin}&departureDate={checkout}&numAdults=2&numRooms=1',
+        'expedia_id':  '112953',
+        'ta_id':       'd73403',
+        'priceline_q': 'Red+Roof+Inn+York+Pennsylvania',
+        'booking_q':   'Red Roof Inn York PA',
+    },
+    {
+        'name':        'Days Inn York',
+        'brand_url':   'https://www.wyndhamhotels.com/days-inn/york-pennsylvania/days-inn-york/rooms-rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&rooms=1',
+        'expedia_id':  '101337',
+        'ta_id':       'd73404',
+        'priceline_q': 'Days+Inn+York+Pennsylvania',
+        'booking_q':   'Days Inn York PA',
+    },
+    {
+        'name':        'Quality Inn York East',
+        'brand_url':   'https://www.choicehotels.com/pennsylvania/york/quality-inn-hotels/pa423/rates?checkInDate={checkin}&checkOutDate={checkout}&adults=2&rooms=1',
+        'expedia_id':  '112954',
+        'ta_id':       'd73405',
+        'priceline_q': 'Quality+Inn+Suites+York+East+Pennsylvania',
+        'booking_q':   'Quality Inn York East PA',
+    },
 ]
 
 YORK_EVENTS_ALL = [
-    {'start': '2026-05-08', 'end': '2026-05-31', 'name': 'York Revolution Baseball Season',     'venue': 'PeoplesBank Park',           'impact': 'MODERATE'},
-    {'start': '2026-06-03', 'end': '2026-08-30', 'name': 'Sounds of Summer Concert Series',     'venue': 'Downtown York',              'impact': 'MODERATE'},
-    {'start': '2026-06-05', 'end': '2026-06-07', 'name': 'York Expo Arts and Crafts Show',      'venue': 'York Expo Center',           'impact': 'MODERATE'},
-    {'start': '2026-06-13', 'end': '2026-06-13', 'name': 'York County Pride Festival',          'venue': 'York',                       'impact': 'MODERATE'},
-    {'start': '2026-06-19', 'end': '2026-06-20', 'name': 'Penn-Mar Irish Festival',             'venue': 'York County',                'impact': 'MODERATE'},
-    {'start': '2026-06-22', 'end': '2026-06-26', 'name': 'Lincoln Highway Conference',          'venue': 'York',                       'impact': 'HIGH'},
-    {'start': '2026-07-06', 'end': '2026-07-11', 'name': 'Mason-Dixon Fair',                    'venue': 'York Fairgrounds Delta PA',  'impact': 'HIGH'},
-    {'start': '2026-07-24', 'end': '2026-07-26', 'name': 'Smoke on the Rail BBQ Festival',     'venue': 'York Expo Center',           'impact': 'HIGH'},
-    {'start': '2026-07-24', 'end': '2026-08-02', 'name': 'York State Fair',                    'venue': 'York Expo Center',           'impact': 'HIGH'},
-    {'start': '2026-08-15', 'end': '2026-10-25', 'name': 'Pennsylvania Renaissance Faire',     'venue': 'Mount Hope Estate',          'impact': 'MODERATE'},
-    {'start': '2026-09-17', 'end': '2026-09-20', 'name': 'Wild and Uncommon Weekend',          'venue': 'Horn Farm Center',           'impact': 'MODERATE'},
-    {'start': '2026-09-19', 'end': '2026-09-20', 'name': 'York County Oyster Festival',        'venue': 'York',                       'impact': 'MODERATE'},
-    {'start': '2026-10-10', 'end': '2026-10-11', 'name': 'Northern Central Railway Excursion', 'venue': 'NCR Trail York',             'impact': 'LOW'},
-    {'start': '2026-11-27', 'end': '2026-11-28', 'name': 'Thanksgiving Holiday Weekend',       'venue': 'York Area',                  'impact': 'HIGH'},
-    {'start': '2026-12-01', 'end': '2026-12-31', 'name': 'Christmas Magic Festival of Lights', 'venue': 'York County',                'impact': 'MODERATE'},
-    {'start': '2027-02-06', 'end': '2027-02-08', 'name': 'Home and Garden Show',               'venue': 'York Expo Center',           'impact': 'HIGH'},
-    {'start': '2027-03-14', 'end': '2027-03-14', 'name': 'York Saint Patricks Day Parade',     'venue': 'Downtown York',              'impact': 'MODERATE'},
-    {'start': '2027-04-20', 'end': '2027-04-25', 'name': 'York Train Show',                    'venue': 'York Expo Center',           'impact': 'HIGH'},
+    {'start': '2026-05-08', 'end': '2026-05-31', 'name': 'York Revolution Baseball Season',     'venue': 'PeoplesBank Park',          'impact': 'MODERATE'},
+    {'start': '2026-06-03', 'end': '2026-08-30', 'name': 'Sounds of Summer Concert Series',     'venue': 'Downtown York',             'impact': 'MODERATE'},
+    {'start': '2026-06-05', 'end': '2026-06-07', 'name': 'York Expo Arts and Crafts Show',      'venue': 'York Expo Center',          'impact': 'MODERATE'},
+    {'start': '2026-06-13', 'end': '2026-06-13', 'name': 'York County Pride Festival',          'venue': 'York',                      'impact': 'MODERATE'},
+    {'start': '2026-06-19', 'end': '2026-06-20', 'name': 'Penn-Mar Irish Festival',             'venue': 'York County',               'impact': 'MODERATE'},
+    {'start': '2026-06-22', 'end': '2026-06-26', 'name': 'Lincoln Highway Conference',          'venue': 'York',                      'impact': 'HIGH'},
+    {'start': '2026-07-06', 'end': '2026-07-11', 'name': 'Mason-Dixon Fair',                    'venue': 'York Fairgrounds Delta PA', 'impact': 'HIGH'},
+    {'start': '2026-07-24', 'end': '2026-07-26', 'name': 'Smoke on the Rail BBQ Festival',     'venue': 'York Expo Center',          'impact': 'HIGH'},
+    {'start': '2026-07-24', 'end': '2026-08-02', 'name': 'York State Fair',                    'venue': 'York Expo Center',          'impact': 'HIGH'},
+    {'start': '2026-08-15', 'end': '2026-10-25', 'name': 'Pennsylvania Renaissance Faire',     'venue': 'Mount Hope Estate',         'impact': 'MODERATE'},
+    {'start': '2026-09-17', 'end': '2026-09-20', 'name': 'Wild and Uncommon Weekend',          'venue': 'Horn Farm Center',          'impact': 'MODERATE'},
+    {'start': '2026-09-19', 'end': '2026-09-20', 'name': 'York County Oyster Festival',        'venue': 'York',                      'impact': 'MODERATE'},
+    {'start': '2026-11-27', 'end': '2026-11-28', 'name': 'Thanksgiving Holiday Weekend',       'venue': 'York Area',                 'impact': 'HIGH'},
+    {'start': '2026-12-01', 'end': '2026-12-31', 'name': 'Christmas Magic Festival of Lights', 'venue': 'York County',               'impact': 'MODERATE'},
+    {'start': '2027-02-06', 'end': '2027-02-08', 'name': 'Home and Garden Show',               'venue': 'York Expo Center',          'impact': 'HIGH'},
+    {'start': '2027-03-14', 'end': '2027-03-14', 'name': 'York Saint Patricks Day Parade',     'venue': 'Downtown York',             'impact': 'MODERATE'},
+    {'start': '2027-04-20', 'end': '2027-04-25', 'name': 'York Train Show',                    'venue': 'York Expo Center',          'impact': 'HIGH'},
 ]
 
 
 def get_events():
     et       = pytz.timezone(TIMEZONE)
     today_dt = datetime.now(et).date()
-    upcoming = []
-    for ev in YORK_EVENTS_ALL:
-        end_dt   = datetime.strptime(ev['end'],   '%Y-%m-%d').date()
-        start_dt = datetime.strptime(ev['start'], '%Y-%m-%d').date()
-        if end_dt >= today_dt and start_dt <= today_dt + timedelta(days=60):
-            upcoming.append(ev)
+    upcoming = [
+        ev for ev in YORK_EVENTS_ALL
+        if datetime.strptime(ev['end'], '%Y-%m-%d').date() >= today_dt
+        and datetime.strptime(ev['start'], '%Y-%m-%d').date() <= today_dt + timedelta(days=60)
+    ]
     upcoming.sort(key=lambda x: x['start'])
     return upcoming[:8]
 
@@ -74,23 +120,26 @@ def get_dates():
     return str(today), str(next_friday), str(next_saturday)
 
 
-def fetch_html(url, extra_headers=None):
+def make_ctx():
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode    = ssl.CERT_NONE
+    return ctx
+
+
+def fetch_html(url, ua=None):
     headers = {
-        'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'User-Agent':      ua or 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
         'Accept-Encoding': 'gzip, deflate',
         'Cache-Control':   'no-cache',
         'Pragma':          'no-cache',
+        'Connection':      'keep-alive',
     }
-    if extra_headers:
-        headers.update(extra_headers)
     req = urllib.request.Request(url, headers=headers)
-    with urllib.request.urlopen(req, timeout=20, context=ctx) as resp:
-        raw = resp.read()
+    with urllib.request.urlopen(req, timeout=18, context=make_ctx()) as r:
+        raw = r.read()
         try:
             return gzip.decompress(raw).decode('utf-8', errors='ignore')
         except Exception:
@@ -98,17 +147,20 @@ def fetch_html(url, extra_headers=None):
 
 
 def parse_price(html, min_p=40, max_p=500):
-    # Try JSON structured data first
-    for pat in [
+    patterns = [
         r'"totalPricePerNight"\s*:\s*\{"formatted"\s*:\s*"\$([\d,]+)"',
         r'"price"\s*:\s*\{"lead"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
         r'"displayPrice"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
         r'"totalPrice"\s*:\s*\{"amount"\s*:\s*([\d.]+)',
         r'"amount"\s*:\s*([\d.]+)\s*,\s*"currencyCode"\s*:\s*"USD"',
+        r'"totalRate"\s*:\s*"?([\d.]+)"?',
+        r'"lowestRate"\s*:\s*"?([\d.]+)"?',
         r'\$\s*(\d{2,3})(?:\.\d{2})?\s*/\s*night',
         r'\$\s*(\d{2,3})(?:\.\d{2})?\s*per\s*night',
         r'[Ff]rom\s*\$\s*(\d{2,3})(?!\d)',
-    ]:
+        r'[Ss]tarting\s*(?:at\s*)?\$\s*(\d{2,3})(?!\d)',
+    ]
+    for pat in patterns:
         matches = re.findall(pat, html)
         valid   = [int(float(m.replace(',', ''))) for m in matches
                    if min_p <= int(float(m.replace(',', ''))) <= max_p]
@@ -117,58 +169,114 @@ def parse_price(html, min_p=40, max_p=500):
     return None
 
 
-def fetch_expedia_rate(hotel, checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    eid      = hotel['expedia_id']
-    name     = hotel['name']
+# ── 1. Brand website ─────────────────────────────────────────────────────────
+def try_brand(hotel, checkin, checkout):
+    url = hotel['brand_url'].replace('{checkin}', checkin).replace('{checkout}', checkout)
+    try:
+        html  = fetch_html(url)
+        price = parse_price(html)
+        if price:
+            print('    brand OK: ' + price)
+            return price
+    except Exception as e:
+        print('    brand err: ' + str(e)[:60])
+    return None
 
-    # Try Expedia property page directly with dates
+
+# ── 2. Expedia ────────────────────────────────────────────────────────────────
+def try_expedia(hotel, checkin, checkout):
+    eid  = hotel['expedia_id']
+    name = hotel['name']
     urls = [
         'https://www.expedia.com/h' + eid + '.Hotel-Information?chkin=' + checkin + '&chkout=' + checkout + '&rm1=a2',
-        'https://www.expedia.com/York-Hotels-' + urllib.parse.quote(name) + '.h' + eid + '.Hotel-Information?chkin=' + checkin + '&chkout=' + checkout + '&rm1=a2',
+        'https://www.expedia.com/Hotel-Search?destination=' + urllib.parse.quote('York, Pennsylvania') + '&startDate=' + checkin + '&endDate=' + checkout + '&adults=2&rooms=1',
     ]
-
     for url in urls:
         try:
-            html  = fetch_html(url)
+            html = fetch_html(url)
+            # For search page, find hotel section first
+            if 'Hotel-Search' in url:
+                kw  = name.lower().split()[0]
+                idx = html.lower().find(kw)
+                if idx < 0:
+                    continue
+                html = html[idx:idx + 3000]
             price = parse_price(html)
             if price:
-                print('    expedia direct: ' + price)
+                print('    expedia OK: ' + price)
                 return price
         except Exception as e:
-            print('    expedia url err: ' + str(e)[:60])
+            print('    expedia err: ' + str(e)[:60])
         time.sleep(1)
+    return None
 
-    # Try Expedia search page
+
+# ── 3. TripAdvisor ────────────────────────────────────────────────────────────
+def try_tripadvisor(hotel, checkin, checkout):
+    query = urllib.parse.quote(hotel['name'] + ' York Pennsylvania')
+    url   = ('https://www.tripadvisor.com/Search?q=' + query
+             + '&searchSessionId=x&sid=x&blockRedirect=true&ssrc=A&geo=52687'
+             + '&checkin=' + checkin + '&checkout=' + checkout)
     try:
-        search_url = (
-            'https://www.expedia.com/Hotel-Search?destination='
-            + urllib.parse.quote('York, Pennsylvania')
-            + '&startDate=' + checkin
-            + '&endDate=' + checkout
-            + '&adults=2&rooms=1'
-        )
-        html = fetch_html(search_url)
-
-        # Find the hotel by name in search results
-        name_word = name.lower().split()[0]
-        idx = html.lower().find(name_word)
-        if idx > 0:
-            chunk = html[idx:idx + 2000]
-            price = parse_price(chunk)
-            if price:
-                print('    expedia search: ' + price)
-                return price
+        html  = fetch_html(url, ua='Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15')
+        kw    = hotel['name'].lower().split()[0]
+        idx   = html.lower().find(kw)
+        chunk = html[max(0, idx):idx + 3000] if idx > 0 else html[:5000]
+        price = parse_price(chunk)
+        if price:
+            print('    tripadvisor OK: ' + price)
+            return price
     except Exception as e:
-        print('    expedia search err: ' + str(e)[:60])
+        print('    tripadvisor err: ' + str(e)[:60])
+    return None
 
+
+# ── 4. Priceline ──────────────────────────────────────────────────────────────
+def try_priceline(hotel, checkin, checkout):
+    q   = hotel['priceline_q']
+    url = ('https://www.priceline.com/relax/at/' + q
+           + '/from/' + checkin + '/to/' + checkout
+           + '/rooms/1?adults=2')
+    try:
+        html  = fetch_html(url)
+        price = parse_price(html[:40000])
+        if price:
+            print('    priceline OK: ' + price)
+            return price
+    except Exception as e:
+        print('    priceline err: ' + str(e)[:60])
+    return None
+
+
+# ── 5. Booking.com ────────────────────────────────────────────────────────────
+def try_booking(hotel, checkin, checkout):
+    q   = urllib.parse.quote(hotel['booking_q'])
+    url = ('https://www.booking.com/searchresults.html?ss=' + q
+           + '&checkin=' + checkin + '&checkout=' + checkout
+           + '&group_adults=2&no_rooms=1&group_children=0&lang=en-us')
+    try:
+        html  = fetch_html(url)
+        kw    = hotel['name'].lower().split()[0]
+        idx   = html.lower().find(kw)
+        chunk = html[max(0, idx):idx + 3000] if idx > 0 else html[:8000]
+        price = parse_price(chunk)
+        if price:
+            print('    booking OK: ' + price)
+            return price
+    except Exception as e:
+        print('    booking err: ' + str(e)[:60])
     return None
 
 
 def fetch_rate(hotel, checkin):
-    price = fetch_expedia_rate(hotel, checkin)
-    if price:
-        return price
+    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
+
+    for source_fn in [try_brand, try_expedia, try_tripadvisor, try_priceline, try_booking]:
+        price = source_fn(hotel, checkin, checkout)
+        if price:
+            return price
+        time.sleep(2)
+
     return 'N/A'
 
 
@@ -271,7 +379,7 @@ def build_email(all_rates, dates, events):
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Today + Weekend</span>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
-    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>via Expedia</span></div>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live Rates</span></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
@@ -323,9 +431,7 @@ def main():
         all_rates[date] = fetch_rates_for_date(date)
         time.sleep(3)
     events = get_events()
-    print('Upcoming events (' + str(len(events)) + '):')
-    for ev in events:
-        print('  ' + ev['start'] + ' ' + ev['name'])
+    print('Upcoming events: ' + str(len(events)))
     html = build_email(all_rates, dates, events)
     send_email(html, dates)
     print('Done!')
