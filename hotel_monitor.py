@@ -17,6 +17,7 @@ SENDER_PASSWORD = os.environ.get('SENDER_PASSWORD', '')
 RECIPIENT_EMAIL = 'khushbudave24@gmail.com'
 TIMEZONE        = 'America/New_York'
 
+# 6 hotels — Quality Inn removed
 HOTELS = [
     {'name': 'Ramada by Wyndham York', 'expedia_id': '108742'},
     {'name': 'Inn at York',             'expedia_id': '133853'},
@@ -24,7 +25,6 @@ HOTELS = [
     {'name': 'Motel 6 North York PA',   'expedia_id': '127495'},
     {'name': 'Red Roof Inn York',       'expedia_id': '112953'},
     {'name': 'Days Inn York',           'expedia_id': '101337'},
-    {'name': 'Quality Inn York East',   'expedia_id': '112954'},
 ]
 
 YORK_EVENTS_ALL = [
@@ -82,9 +82,9 @@ def make_ctx():
 def fetch_html(url, referer=None):
     headers = {
         'User-Agent':      random.choice(USER_AGENTS),
-        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate',
         'Cache-Control':   'no-cache',
         'DNT':             '1',
         'Connection':      'keep-alive',
@@ -122,7 +122,7 @@ def parse_price(text, min_p=40, max_p=500):
 
 
 def try_google(hotel_name, checkin):
-    query = hotel_name + ' hotel room rate ' + checkin + ' York PA'
+    query = hotel_name + ' hotel price tonight ' + checkin + ' York PA'
     url   = 'https://www.google.com/search?q=' + urllib.parse.quote(query) + '&hl=en&gl=us&num=5'
     try:
         html = fetch_html(url)
@@ -148,7 +148,7 @@ def try_expedia(hotel_name, expedia_id, checkin):
     checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
     url = 'https://www.expedia.com/h' + expedia_id + '.Hotel-Information?chkin=' + checkin + '&chkout=' + checkout + '&rm1=a2'
     try:
-        time.sleep(random.uniform(3, 5))
+        time.sleep(random.uniform(4, 7))
         html  = fetch_html(url, referer='https://www.expedia.com/')
         kw    = hotel_name.lower().split()[0]
         idx   = html.lower().find(kw)
@@ -169,6 +169,7 @@ def try_booking(hotel_name, checkin):
            + '&checkin=' + checkin + '&checkout=' + checkout
            + '&group_adults=2&no_rooms=1&lang=en-us')
     try:
+        time.sleep(random.uniform(3, 5))
         html  = fetch_html(url, referer='https://www.booking.com/')
         kw    = hotel_name.lower().split()[0]
         idx   = html.lower().find(kw)
@@ -182,30 +183,13 @@ def try_booking(hotel_name, checkin):
     return None
 
 
-def try_kayak(hotel_name, checkin):
-    checkout = str(datetime.strptime(checkin, '%Y-%m-%d').date() + timedelta(days=1))
-    slug = re.sub(r'[^a-z0-9]+', '-', hotel_name.lower()).strip('-')
-    url  = 'https://www.kayak.com/hotels/' + slug + '-york-pennsylvania/' + checkin + '/' + checkout + '/1adults'
-    try:
-        html  = fetch_html(url, referer='https://www.kayak.com/')
-        price = parse_price(html[:20000])
-        if price:
-            print('    kayak: ' + price)
-            return price
-    except Exception as e:
-        print('    kayak err: ' + str(e)[:60])
-    return None
-
-
 def fetch_rate(hotel, checkin):
     name = hotel['name']
     eid  = hotel['expedia_id']
-
     for label, fn in [
         ('google',  lambda: try_google(name, checkin)),
         ('expedia', lambda: try_expedia(name, eid, checkin)),
         ('booking', lambda: try_booking(name, checkin)),
-        ('kayak',   lambda: try_kayak(name, checkin)),
     ]:
         try:
             price = fn()
@@ -213,7 +197,7 @@ def fetch_rate(hotel, checkin):
                 return price
         except Exception as e:
             print('    ' + label + ' err: ' + str(e)[:50])
-        time.sleep(random.uniform(2, 4))
+        time.sleep(random.uniform(4, 8))
     return 'N/A'
 
 
@@ -264,8 +248,6 @@ def build_email(rates, today_str, events):
     send_time       = now.strftime('%B ') + str(now.day) + ', ' + str(now.year) + ' at 7:00 AM ET'
     lowest_tonight  = get_lowest(rates)
     highest_tonight = get_highest(rates)
-
-    # Hotel rows
     hotel_rows = ''
     for i, hotel in enumerate(HOTELS):
         rate  = rates.get(hotel['name'], 'N/A')
@@ -275,8 +257,6 @@ def build_email(rates, today_str, events):
         hotel_rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;font-size:13px;font-weight:600;color:#1a1a1a;>' + hotel['name'] + '</td>'
         hotel_rows += '<td style=padding:10px 8px;border-bottom:1px solid #f0ece3;text-align:right;font-size:18px;font-weight:700;color:' + color + ';>' + rate + '</td>'
         hotel_rows += '</tr>'
-
-    # Event rows
     event_rows = ''
     if events:
         for ev in events:
@@ -290,7 +270,6 @@ def build_email(rates, today_str, events):
             event_rows += '</td></tr>'
     else:
         event_rows = '<tr><td colspan=2 style=padding:14px 8px;color:#888;font-size:13px;>No major events in the next 60 days.</td></tr>'
-
     html  = '<!DOCTYPE html><html><head><meta charset=UTF-8></head><body style=margin:0;padding:20px;background:#edeae3;font-family:Arial,sans-serif;>'
     html += '<div style=max-width:640px;margin:0 auto;background:#ffffff;border-radius:3px;overflow:hidden;box-shadow:0 4px 30px rgba(0,0,0,0.12);>'
     html += '<div style=background:#1b2e1b;padding:32px 36px;>'
@@ -298,18 +277,18 @@ def build_email(rates, today_str, events):
     html += '<div style=font-size:26px;font-weight:700;color:#ffffff;margin-bottom:4px;>Hotel Rate Alert</div>'
     html += '<div style=font-size:12px;color:#9ab890;margin-bottom:16px;>Your 7:00 AM briefing - ' + send_time + '</div>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>Todays Rates</span>'
-    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>7 Properties</span>'
+    html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;margin-right:6px;>6 Properties</span>'
     html += '<span style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.15);border-radius:20px;padding:4px 12px;font-size:11px;color:#c0d4b8;>Live Rates</span></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=background:#1b2e1b;><tr>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + lowest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Lowest Tonight</div></td>'
     html += '<td width=33% style=padding:14px 10px;text-align:center;border-right:1px solid rgba(255,255,255,0.07);><div style=font-size:22px;font-weight:700;color:#ffffff;>' + highest_tonight + '</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Highest Tonight</div></td>'
-    html += '<td width=33% style=padding:14px 10px;text-align:center;><div style=font-size:22px;font-weight:700;color:#ffffff;>7 Hotels</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Tracked Tonight</div></td></tr></table>'
+    html += '<td width=33% style=padding:14px 10px;text-align:center;><div style=font-size:22px;font-weight:700;color:#ffffff;>6 Hotels</div><div style=font-size:9px;color:#5e8a5e;letter-spacing:1px;text-transform:uppercase;>Tracked Tonight</div></td></tr></table>'
     html += '<div style=padding:24px 36px 0;><div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>Todays Rates - ' + fmt_date(today_str) + '</div></div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=padding:0 36px;><tbody>' + hotel_rows + '</tbody></table>'
     html += '<div style=padding:24px 36px 0;><div style=font-size:9px;letter-spacing:3px;text-transform:uppercase;color:#999;font-weight:700;padding-bottom:10px;border-bottom:2px solid #f0ece3;margin-bottom:4px;>York PA Events - Next 60 Days</div>'
     html += '<table width=100% cellpadding=0 cellspacing=0 style=margin-bottom:24px;><tbody>' + event_rows + '</tbody></table></div>'
     html += '<div style=padding:12px 36px;background:#f7f4ef;border-top:1px solid #ebe7e0;><span style=font-size:11px;color:#888;>Rate Legend: <span style=color:#2a7a2a;font-weight:700;>Under $75 - Soft</span> | <span style=color:#e07800;font-weight:700;>$75-$99 - Moderate</span> | <span style=color:#c0392b;font-weight:700;>$100 and above - High</span></span></div>'
-    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn | Quality Inn East<br>Delivered to: khushbudave24@gmail.com</p></div>'
+    html += '<div style=background:#1b2e1b;padding:18px 36px;text-align:center;><p style=font-size:11px;color:#5e8a5e;margin:0;line-height:1.8;>York PA Hotel Rate Alert - Sent daily at 7:00 AM ET<br>Ramada | Inn at York | Motel 6 x2 | Red Roof | Days Inn<br>Delivered to: khushbudave24@gmail.com</p></div>'
     html += '</div></body></html>'
     return html
 
@@ -341,9 +320,9 @@ def main():
         print('Fetching: ' + hotel['name'])
         rates[hotel['name']] = fetch_rate(hotel, today_str)
         print('=> ' + rates[hotel['name']])
-        time.sleep(random.uniform(3, 5))
+        time.sleep(random.uniform(5, 10))
     events = get_events()
-    print('Upcoming events: ' + str(len(events)))
+    print('Events: ' + str(len(events)))
     html = build_email(rates, today_str, events)
     send_email(html, today_str)
     print('Done!')
