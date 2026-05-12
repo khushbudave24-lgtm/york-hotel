@@ -65,20 +65,14 @@ def get_today():
 def fetch_rate_for_hotel(hotel_name, date_str, client):
     dt_obj      = datetime.strptime(date_str, '%Y-%m-%d')
     date_pretty = dt_obj.strftime('%B %d, %Y')
-
     prompt = (
-        'Use your web search tool to search Google for: '
-        '"' + hotel_name + ' York PA hotel room price ' + date_pretty + '"\n\n'
-        'Look at the search results and find the room rate shown in Google search results, '
-        'Google Hotels panel, or any travel website that appears in results.\n\n'
-        'Return ONLY this JSON with no other text:\n'
-        '{"rate": "$XX", "source": "website name"}\n\n'
-        'Rules:\n'
-        '- rate: the lowest room price found as a dollar amount like "$79"\n'
-        '- source: the website name where you found it like "google hotels", "wyndham.com", "tripadvisor.com"\n'
-        '- If no price found use: {"rate": "N/A", "source": "not found"}'
+        'Use your web search tool to search for: "'
+        + hotel_name + ' York PA hotel room rate ' + date_pretty + '"\n\n'
+        'Find the room rate from Google search results or any travel site.\n\n'
+        'Return ONLY this JSON:\n'
+        '{"rate": "$XX", "source": "site name"}\n\n'
+        'Use the lowest price found. If not found: {"rate": "N/A", "source": "not found"}'
     )
-
     try:
         response = client.messages.create(
             model      = 'claude-haiku-4-5',
@@ -90,7 +84,6 @@ def fetch_rate_for_hotel(hotel_name, date_str, client):
         for block in response.content:
             if hasattr(block, 'text'):
                 full_text += block.text
-
         start = full_text.find('{')
         end   = full_text.rfind('}') + 1
         if start >= 0 and end > start:
@@ -99,16 +92,14 @@ def fetch_rate_for_hotel(hotel_name, date_str, client):
             source = data.get('source', 'unknown')
             print('  ' + hotel_name + ': ' + rate + ' (' + source + ')')
             return rate, source
-
-        print('  ' + hotel_name + ': no JSON — ' + full_text[:80])
+        print('  ' + hotel_name + ': no JSON')
         return 'N/A', 'not found'
-
     except anthropic.RateLimitError:
-        print('  ' + hotel_name + ': rate limit, waiting 60s')
+        print('  rate limit, waiting 60s')
         time.sleep(60)
         return 'N/A', 'rate limit'
     except Exception as e:
-        print('  ' + hotel_name + ': error ' + str(e)[:80])
+        print('  error: ' + str(e)[:80])
         return 'N/A', 'error'
 
 
@@ -117,9 +108,9 @@ def fetch_all_rates(date_str):
     rates   = {}
     sources = {}
     for i, hotel in enumerate(HOTELS):
-        rate, source      = fetch_rate_for_hotel(hotel, date_str, client)
-        rates[hotel]      = rate
-        sources[hotel]    = source
+        rate, source   = fetch_rate_for_hotel(hotel, date_str, client)
+        rates[hotel]   = rate
+        sources[hotel] = source
         if i < len(HOTELS) - 1:
             time.sleep(8)
     return rates, sources
@@ -127,30 +118,44 @@ def fetch_all_rates(date_str):
 
 def rate_color(rate_str):
     if not rate_str or rate_str == 'N/A':
-        return '#9ca3af'
+        return '#555555'
     try:
         val = int(rate_str.replace('$', '').replace(',', ''))
         if val >= 100:
-            return '#dc2626'
+            return '#b91c1c'
         if val >= 75:
-            return '#d97706'
-        return '#16a34a'
+            return '#92400e'
+        return '#14532d'
     except Exception:
-        return '#9ca3af'
+        return '#555555'
 
 
 def rate_bg(rate_str):
     if not rate_str or rate_str == 'N/A':
-        return '#f9fafb'
+        return '#f5f5f5'
     try:
         val = int(rate_str.replace('$', '').replace(',', ''))
         if val >= 100:
-            return '#fef2f2'
+            return '#fff1f1'
         if val >= 75:
-            return '#fffbeb'
+            return '#fefce8'
         return '#f0fdf4'
     except Exception:
-        return '#f9fafb'
+        return '#f5f5f5'
+
+
+def rate_dot_color(rate_str):
+    if not rate_str or rate_str == 'N/A':
+        return '#aaaaaa'
+    try:
+        val = int(rate_str.replace('$', '').replace(',', ''))
+        if val >= 100:
+            return '#ef4444'
+        if val >= 75:
+            return '#f59e0b'
+        return '#22c55e'
+    except Exception:
+        return '#aaaaaa'
 
 
 def fmt_date(d):
@@ -183,28 +188,28 @@ def get_stat(rates, fn):
 def source_badge(source):
     s = (source or 'unknown').lower().strip()
     color_map = {
-        'google hotels':    ('#1a73e8', '#e8f0fe'),
-        'google':           ('#1a73e8', '#e8f0fe'),
-        'wyndham.com':      ('#004990', '#dce8f5'),
-        'wyndham':          ('#004990', '#dce8f5'),
-        'innatyork.com':    ('#6b4c3b', '#f5ede8'),
-        'motel6.com':       ('#c8102e', '#fde8eb'),
-        'motel6':           ('#c8102e', '#fde8eb'),
-        'redroof.com':      ('#cc0000', '#fde8e8'),
-        'redroof':          ('#cc0000', '#fde8e8'),
-        'tripadvisor':      ('#00aa6c', '#e0f5ee'),
-        'tripadvisor.com':  ('#00aa6c', '#e0f5ee'),
-        'hotels.com':       ('#c00', '#ffe0e0'),
-        'expedia':          ('#1b0077', '#ede8ff'),
-        'expedia.com':      ('#1b0077', '#ede8ff'),
-        'booking.com':      ('#003580', '#d4e6ff'),
-        'booking':          ('#003580', '#d4e6ff'),
+        'google hotels':   ('#1a73e8', '#ffffff'),
+        'google':          ('#1a73e8', '#ffffff'),
+        'kayak.com':       ('#ff690f', '#ffffff'),
+        'kayak':           ('#ff690f', '#ffffff'),
+        'wyndham.com':     ('#004990', '#ffffff'),
+        'wyndham':         ('#004990', '#ffffff'),
+        'motel6.com':      ('#c8102e', '#ffffff'),
+        'motel6':          ('#c8102e', '#ffffff'),
+        'redroof.com':     ('#cc0000', '#ffffff'),
+        'tripadvisor':     ('#00aa6c', '#ffffff'),
+        'tripadvisor.com': ('#00aa6c', '#ffffff'),
+        'hotels.com':      ('#d4001f', '#ffffff'),
+        'expedia':         ('#1b0077', '#ffffff'),
+        'expedia.com':     ('#1b0077', '#ffffff'),
+        'booking.com':     ('#003580', '#ffffff'),
+        'booking':         ('#003580', '#ffffff'),
     }
-    bg, fg = color_map.get(s, ('#6b7280', '#f3f4f6'))
-    label  = source if source not in ('unknown', 'not found', 'error', 'rate limit') else '—'
+    bg, fg = color_map.get(s, ('#555555', '#ffffff'))
+    label  = source if source not in ('unknown', 'not found', 'error', 'rate limit', '') else 'unknown'
     return (
         '<span style=font-size:10px;font-weight:700;background:' + bg +
-        ';color:' + fg + ';padding:2px 8px;border-radius:10px;>' + label + '</span>'
+        ';color:' + fg + ';padding:2px 8px;border-radius:10px;display:inline-block;>' + label + '</span>'
     )
 
 
@@ -212,115 +217,130 @@ def build_email(rates, sources, today_str, events):
     lowest  = get_stat(rates, min)
     highest = get_stat(rates, max)
 
+    # Hotel rows — white background, dark text, high contrast
     hotel_rows = ''
     for i, hotel in enumerate(HOTELS):
-        rate  = rates.get(hotel, 'N/A') or 'N/A'
-        src   = sources.get(hotel, 'unknown')
-        color = rate_color(rate)
-        bg    = rate_bg(rate)
-        dot   = '<span style=display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color + ';margin-right:8px;flex-shrink:0;></span>'
-        badge = source_badge(src)
+        rate     = rates.get(hotel, 'N/A') or 'N/A'
+        src      = sources.get(hotel, 'unknown')
+        color    = rate_color(rate)
+        bg       = rate_bg(rate)
+        dot_col  = rate_dot_color(rate)
+        badge    = source_badge(src)
+        row_border = '2px solid #e5e7eb' if i == len(HOTELS) - 1 else '1px solid #e5e7eb'
         hotel_rows += (
-            '<tr style=background:' + bg + ';border-bottom:1px solid #f3f4f6;>'
-            '<td style=padding:4px 6px 4px 16px;font-size:12px;color:#9ca3af;width:22px;vertical-align:middle;>' + str(i+1) + '</td>'
-            '<td style=padding:13px 10px;vertical-align:middle;>'
-            '<div style=display:flex;align-items:center;>' + dot +
+            '<tr style=background:' + bg + ';>'
+            '<td style=padding:6px 8px 6px 16px;font-size:13px;color:#6b7280;width:24px;vertical-align:middle;border-bottom:' + row_border + ';>' + str(i+1) + '</td>'
+            '<td style=padding:14px 10px;vertical-align:middle;border-bottom:' + row_border + ';>'
+            '<div style=display:flex;align-items:flex-start;gap:8px;>'
+            '<span style=display:inline-block;width:11px;height:11px;border-radius:50%;background:' + dot_col + ';margin-top:3px;flex-shrink:0;></span>'
             '<div>'
-            '<div style=font-size:13px;font-weight:600;color:#1f2937;margin-bottom:4px;>' + hotel + '</div>'
+            '<div style=font-size:14px;font-weight:700;color:#111827;margin-bottom:5px;>' + hotel + '</div>'
             + badge +
             '</div></div>'
             '</td>'
-            '<td style=padding:13px 16px 13px 10px;text-align:right;vertical-align:middle;white-space:nowrap;>'
-            '<div style=font-size:26px;font-weight:800;color:' + color + ';line-height:1;>' + rate + '</div>'
-            '<div style=font-size:10px;color:#9ca3af;margin-top:3px;>per night</div>'
+            '<td style=padding:14px 16px 14px 10px;text-align:right;vertical-align:middle;border-bottom:' + row_border + ';>'
+            '<div style=font-size:28px;font-weight:800;color:' + color + ';line-height:1;>' + rate + '</div>'
+            '<div style=font-size:11px;color:#6b7280;margin-top:3px;>per night</div>'
             '</td>'
             '</tr>'
         )
 
+    # Event rows — white background, dark text
     event_rows = ''
     if events:
         for ev in events:
             imp = ev.get('impact', 'LOW')
             if imp == 'HIGH':
-                bb, rb, ic = '#dc2626', '#fff7f7', '🔴'
+                bb, rb = '#b91c1c', '#fff8f8'
+                icon   = '🔴'
             elif imp == 'MODERATE':
-                bb, rb, ic = '#d97706', '#fffdf0', '🟡'
+                bb, rb = '#b45309', '#fffbeb'
+                icon   = '🟡'
             else:
-                bb, rb, ic = '#16a34a', '#f0fdf4', '🟢'
+                bb, rb = '#15803d', '#f0fdf4'
+                icon   = '🟢'
             event_rows += (
-                '<tr style=background:' + rb + ';border-bottom:1px solid #f3f4f6;>'
-                '<td style=padding:12px 16px;>'
-                '<div style=font-size:13px;font-weight:700;color:#1f2937;>' + ic + ' ' + ev['name'] + '</div>'
-                '<div style=font-size:11px;color:#6b7280;margin-top:3px;>'
+                '<tr style=background:' + rb + ';border-bottom:1px solid #e5e7eb;>'
+                '<td style=padding:13px 16px;>'
+                '<div style=font-size:14px;font-weight:700;color:#111827;margin-bottom:4px;>' + icon + ' ' + ev['name'] + '</div>'
+                '<div style=font-size:12px;color:#4b5563;>'
                 '📅 ' + fmt_event_date(ev) + ' &nbsp;&bull;&nbsp; 📍 ' + ev['venue'] +
                 '</div></td>'
-                '<td style=padding:12px 16px;text-align:right;white-space:nowrap;>'
-                '<span style=background:' + bb + ';color:#fff;font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;>' + imp + '</span>'
+                '<td style=padding:13px 16px;text-align:right;white-space:nowrap;vertical-align:middle;>'
+                '<span style=background:' + bb + ';color:#ffffff;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;>' + imp + '</span>'
                 '</td></tr>'
             )
     else:
-        event_rows = '<tr><td colspan=2 style=padding:20px;color:#9ca3af;font-size:13px;text-align:center;>No major events in the next 60 days.</td></tr>'
+        event_rows = '<tr><td colspan=2 style=padding:20px;color:#6b7280;font-size:13px;text-align:center;background:#ffffff;>No major events in the next 60 days.</td></tr>'
 
     html = (
         '<!DOCTYPE html><html><head><meta charset=UTF-8>'
         '<meta name=viewport content=width=device-width,initial-scale=1></head>'
-        '<body style=margin:0;padding:0;background:#f0f2f5;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;>'
-        '<div style=max-width:620px;margin:24px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.12);>'
+        '<body style=margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;>'
+        '<div style=max-width:600px;margin:20px auto;background:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.10);>'
 
-        '<div style=background:linear-gradient(135deg,#0f2027 0%,#203a43 50%,#2c5364 100%);padding:32px;>'
-        '<div style=font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#7dd3fc;font-weight:600;margin-bottom:6px;>🏙️ York, Pennsylvania</div>'
-        '<div style=font-size:28px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;margin-bottom:14px;>Hotel Rate Monitor</div>'
-        '<div style=background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:10px;padding:10px 16px;display:inline-block;>'
-        '<span style=font-size:12px;color:#bfdbfe;>📅 ' + fmt_date(today_str) + ' &nbsp;&bull;&nbsp; ☀️ Daily 7 AM Report</span>'
+        # HEADER — dark bg, white text — good contrast
+        '<div style=background:#1b2e1b;padding:28px 28px 24px;>'
+        '<div style=font-size:11px;letter-spacing:3px;text-transform:uppercase;color:#86efac;font-weight:600;margin-bottom:6px;>York, Pennsylvania</div>'
+        '<div style=font-size:26px;font-weight:800;color:#ffffff;margin-bottom:14px;>🏨 Hotel Rate Monitor</div>'
+        '<div style=background:rgba(255,255,255,0.12);border-radius:8px;padding:9px 14px;display:inline-block;>'
+        '<span style=font-size:12px;color:#d1fae5;font-weight:500;>📅 ' + fmt_date(today_str) + ' &nbsp;&bull;&nbsp; ☀️ Daily 7 AM Report</span>'
         '</div></div>'
 
-        '<div style=background:#1e3a5f;display:flex;>'
-        '<div style=flex:1;padding:18px 12px;text-align:center;border-right:1px solid rgba(255,255,255,0.08);>'
-        '<div style=font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#60a5fa;margin-bottom:6px;>Lowest Tonight</div>'
-        '<div style=font-size:28px;font-weight:800;color:#34d399;>' + lowest + '</div>'
+        # STAT BAR — medium dark bg, white/bright text
+        '<div style=background:#2d4a2d;display:flex;border-bottom:3px solid #1b2e1b;>'
+        '<div style=flex:1;padding:16px 8px;text-align:center;border-right:1px solid rgba(255,255,255,0.15);>'
+        '<div style=font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#86efac;margin-bottom:5px;font-weight:600;>Lowest Tonight</div>'
+        '<div style=font-size:28px;font-weight:800;color:#ffffff;>' + lowest + '</div>'
         '</div>'
-        '<div style=flex:1;padding:18px 12px;text-align:center;border-right:1px solid rgba(255,255,255,0.08);>'
-        '<div style=font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#60a5fa;margin-bottom:6px;>Highest Tonight</div>'
-        '<div style=font-size:28px;font-weight:800;color:#f87171;>' + highest + '</div>'
+        '<div style=flex:1;padding:16px 8px;text-align:center;border-right:1px solid rgba(255,255,255,0.15);>'
+        '<div style=font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#86efac;margin-bottom:5px;font-weight:600;>Highest Tonight</div>'
+        '<div style=font-size:28px;font-weight:800;color:#ffffff;>' + highest + '</div>'
         '</div>'
-        '<div style=flex:1;padding:18px 12px;text-align:center;>'
-        '<div style=font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#60a5fa;margin-bottom:6px;>Hotels Tracked</div>'
+        '<div style=flex:1;padding:16px 8px;text-align:center;>'
+        '<div style=font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:#86efac;margin-bottom:5px;font-weight:600;>Tracked</div>'
         '<div style=font-size:28px;font-weight:800;color:#ffffff;>7</div>'
         '</div></div>'
 
-        '<div style=padding:20px 20px 10px;display:flex;align-items:center;>'
-        '<div style=width:4px;height:22px;background:linear-gradient(180deg,#3b82f6,#1d4ed8);border-radius:2px;margin-right:12px;flex-shrink:0;></div>'
+        # RATES HEADER — white bg, dark text
+        '<div style=padding:20px 24px 12px;background:#ffffff;>'
+        '<div style=display:flex;align-items:center;gap:10px;>'
+        '<div style=width:4px;height:22px;background:#1b2e1b;border-radius:2px;flex-shrink:0;></div>'
         '<div>'
-        '<div style=font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#374151;>Tonight\'s Rates</div>'
-        '<div style=font-size:11px;color:#9ca3af;margin-top:2px;>Sourced via Google search &amp; hotel websites</div>'
-        '</div></div>'
+        '<div style=font-size:14px;font-weight:700;color:#111827;letter-spacing:0.5px;text-transform:uppercase;>Tonight\'s Rates</div>'
+        '<div style=font-size:12px;color:#6b7280;margin-top:2px;>' + fmt_date(today_str) + '</div>'
+        '</div></div></div>'
 
-        '<table width=100% cellpadding=0 cellspacing=0 style=border-top:2px solid #f3f4f6;>'
+        '<table width=100% cellpadding=0 cellspacing=0 style=background:#ffffff;>'
         '<tbody>' + hotel_rows + '</tbody></table>'
 
-        '<div style=padding:10px 16px;background:#f8fafc;border-top:1px solid #f3f4f6;border-bottom:2px solid #e5e7eb;>'
-        '<span style=font-size:11px;color:#6b7280;>'
-        '<span style=display:inline-block;width:8px;height:8px;border-radius:50%;background:#16a34a;margin-right:4px;></span>Under $75 &nbsp;'
-        '<span style=display:inline-block;width:8px;height:8px;border-radius:50%;background:#d97706;margin-right:4px;></span>$75–$99 &nbsp;'
-        '<span style=display:inline-block;width:8px;height:8px;border-radius:50%;background:#dc2626;margin-right:4px;></span>$100+'
+        # LEGEND — white bg, dark text
+        '<div style=padding:10px 24px;background:#f9fafb;border-top:1px solid #e5e7eb;border-bottom:2px solid #e5e7eb;>'
+        '<span style=font-size:12px;color:#374151;font-weight:500;>'
+        '<span style=display:inline-block;width:10px;height:10px;border-radius:50%;background:#22c55e;margin-right:5px;vertical-align:middle;></span>Under $75 &nbsp;&nbsp;'
+        '<span style=display:inline-block;width:10px;height:10px;border-radius:50%;background:#f59e0b;margin-right:5px;vertical-align:middle;></span>$75–$99 &nbsp;&nbsp;'
+        '<span style=display:inline-block;width:10px;height:10px;border-radius:50%;background:#ef4444;margin-right:5px;vertical-align:middle;></span>$100+'
         '</span></div>'
 
-        '<div style=padding:20px 20px 10px;display:flex;align-items:center;>'
-        '<div style=width:4px;height:22px;background:linear-gradient(180deg,#f59e0b,#d97706);border-radius:2px;margin-right:12px;flex-shrink:0;></div>'
+        # EVENTS HEADER
+        '<div style=padding:20px 24px 12px;background:#ffffff;>'
+        '<div style=display:flex;align-items:center;gap:10px;>'
+        '<div style=width:4px;height:22px;background:#d97706;border-radius:2px;flex-shrink:0;></div>'
         '<div>'
-        '<div style=font-size:13px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:#374151;>York PA Events</div>'
-        '<div style=font-size:11px;color:#9ca3af;margin-top:2px;>Upcoming in the next 60 days</div>'
-        '</div></div>'
+        '<div style=font-size:14px;font-weight:700;color:#111827;letter-spacing:0.5px;text-transform:uppercase;>York PA Events</div>'
+        '<div style=font-size:12px;color:#6b7280;margin-top:2px;>Upcoming in the next 60 days</div>'
+        '</div></div></div>'
 
         '<div style=margin:0 16px 24px;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden;>'
         '<table width=100% cellpadding=0 cellspacing=0><tbody>' + event_rows + '</tbody></table>'
         '</div>'
 
-        '<div style=background:linear-gradient(135deg,#0f2027,#1a3a4a);padding:20px 24px;text-align:center;>'
-        '<div style=font-size:12px;color:#60a5fa;font-weight:700;margin-bottom:6px;letter-spacing:1px;>YORK PA HOTEL RATE MONITOR</div>'
-        '<div style=font-size:11px;color:#475569;line-height:1.8;>'
+        # FOOTER — dark bg, readable text
+        '<div style=background:#1b2e1b;padding:18px 24px;text-align:center;>'
+        '<div style=font-size:12px;color:#86efac;font-weight:700;margin-bottom:5px;letter-spacing:1px;>YORK PA HOTEL RATE MONITOR</div>'
+        '<div style=font-size:11px;color:#6ee7b7;line-height:1.8;>'
         'Ramada &bull; Inn at York &bull; Motel 6 (x2) &bull; Red Roof &bull; Days Inn &bull; Quality Inn<br>'
-        'Sent daily at 7:00 AM ET &bull; Powered by Claude AI'
+        'Sent daily at 7:00 AM ET'
         '</div></div>'
 
         '</div></body></html>'
@@ -350,7 +370,6 @@ def main():
     print('York PA Hotel Rate Monitor starting...')
     today_str = get_today()
     print('Today: ' + today_str)
-    print('Fetching rates one hotel at a time...')
     rates, sources = fetch_all_rates(today_str)
     events = get_events()
     print('Events: ' + str(len(events)))
